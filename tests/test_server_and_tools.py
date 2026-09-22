@@ -130,7 +130,8 @@ def test_run_if_ready_starts_claude_when_work(cfg_env, monkeypatch):
     assert calls == []
     assert run_if_ready.main([]) == 0
     assert len(calls) == 1
-    assert calls[0][0][1:] == ["-p", "/forge-run"]
+    assert calls[0][0][1:3] == ["-p", "/forge-run"]
+    assert "dontAsk" in calls[0][0]
     assert "creationflags" in calls[0][1]
 
 
@@ -216,7 +217,7 @@ def test_forge_cli_refuses_worker_move(cfg_env, capsys):
     st.close()
     assert forge.main(["move", tid, "done", "--actor", WORKER]) == 3
     assert "refused" in capsys.readouterr().out
-    assert forge.main(["move", tid, "done"]) == 0  # you, by default
+    assert forge.main(["move", tid, "done", "--actor", HUMAN]) == 0
 
 
 def test_every_subprocess_is_windowless():

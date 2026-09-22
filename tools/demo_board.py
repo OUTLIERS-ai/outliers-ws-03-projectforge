@@ -23,12 +23,19 @@ AGENTS = ["content-lead", "writer-bot", "editor-bot", "research-bot",
 
 def build(out: Path):
     out.mkdir(parents=True, exist_ok=True)
+    # a made-up CRM vault, so the person link on the demo card opens a note
+    crm = out / "CRM"
+    (crm / "People").mkdir(parents=True, exist_ok=True)
+    note = crm / "People" / "Dan Price.md"
+    if not note.exists():
+        note.write_text("# Dan Price\n\nOakfield Joinery. Made-up demo "
+                        "person.\n", encoding="utf-8")
     cfgp = out / "config.json"
     cfg = {
         "workspace": "Sam Carter Bookkeeping - demo",
         "human": "you", "managers": ["content-lead"], "agents": AGENTS,
         "outward_owners": ["social-poster"], "db_path": "data/forge.db",
-        "summary_note": "",
+        "summary_note": "", "crm_vault": str(crm),
         "departments": [
             {"id": "content", "name": "Content", "lead": "content-lead",
              "color": "#ff3c00"},
@@ -37,7 +44,8 @@ def build(out: Path):
              "color": "#5b8def"},
         ],
     }
-    cfgp.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+    from engine.config import atomic_write
+    atomic_write(cfgp, json.dumps(cfg, indent=2))
     os.environ["FORGE_CONFIG"] = str(cfgp)
     from engine.config import load_config
     from engine.db import open_store

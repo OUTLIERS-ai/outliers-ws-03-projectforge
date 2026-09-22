@@ -2,24 +2,27 @@
 
   python forge.py serve [--port N]            open the web board
   python forge.py list                        open cards in the terminal
-  python forge.py add-project "Title" --dept content
-  python forge.py add-task PROJECT_ID "Title" [--status ready --agent NAME]
-  python forge.py move TASK_ID STATUS [--actor NAME]
+  python forge.py projects                    projects and their ids
+  python forge.py add-project "Title" --dept content --actor YOU
+  python forge.py add-task PROJECT_ID "Title" --actor YOU [--status ready]
+  python forge.py move TASK_ID STATUS --actor YOU
   python forge.py pass TASK_ID AGENT "what was done" [--result progressed]
   python forge.py handoff TASK_ID FROM TO --done ... --decisions ... \\
         --state ... --next-first ... --warnings ...
   python forge.py next [--json]               the ranked queue (orchestrator)
   python forge.py waiting                     how many cards are ready now
-  python forge.py intake                      triage backlog (orchestrator)
-  python forge.py dispatch TASK_ID            claim a card (orchestrator)
-  python forge.py commit TASK_ID AGENT "summary" --result completed
+  python forge.py intake --actor orchestrator         triage the backlog
+  python forge.py dispatch TASK_ID --actor orchestrator   claim a card
+  python forge.py commit TASK_ID AGENT "summary" --result completed --actor orchestrator
   python forge.py hygiene                     run the health check once
-  python forge.py daemon [--interval 60]      board + health check on a loop
+  python forge.py daemon [--interval 10]      same as serve, with its own check interval
   python forge.py mirror                      rewrite the summary note
   python forge.py metrics [--days 7]          board health numbers
 
-Every write says who made it (--actor). Your own name comes from config
-("human", default "you"); the orchestrator's from "orchestrator".
+Every write must say who made it (--actor). There is no default: an agent
+that runs this file without naming itself is stopped, instead of being
+counted as you. Your own name is "human" in config.json (default "you");
+the orchestrator's is "orchestrator".
 """
 import argparse
 import json
@@ -49,6 +52,9 @@ def _outs(s):
 def build_parser(cfg):
     human = cfg.get("human", "you")
     orch = cfg.get("orchestrator", "orchestrator")
+    ACTOR_HELP = (f"who is making this change. You are '{human}' "
+                  f"(config.json 'human').")
+    ORCH_HELP = f"only the orchestrator ('{orch}') may do this"
     ap = argparse.ArgumentParser(prog="forge")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
@@ -56,10 +62,11 @@ def build_parser(cfg):
     s.add_argument("--port", type=int, default=cfg.get("port", 3020))
     sub.add_parser("mirror")
     sub.add_parser("list")
+    sub.add_parser("projects", help="every project and its id")
     sub.add_parser("hygiene")
     s = sub.add_parser("daemon", help="board + no-AI health check loop")
     s.add_argument("--port", type=int, default=cfg.get("port", 3020))
-    s.add_argument("--interval", type=int, default=60,
+    s.add_argument("--interval", type=int, default=(cfg.get("hygiene") or {}).get("check_every_min", 10),
                    help="minutes between health checks (no AI)")
     s = sub.add_parser("metrics")
     s.add_argument("--days", type=int, default=7)
@@ -70,7 +77,7 @@ def build_parser(cfg):
     s.add_argument("title")
     s.add_argument("--dept", required=True)
     s.add_argument("--summary", default="")
-    s.add_argument("--actor", default=human)
+    s.add_argument("--actor", required=True, help=ACTOR_HELP)
     s = sub.add_parser("add-task")
     s.add_argument("project_id")
     s.add_argument("title")
@@ -80,11 +87,11 @@ def build_parser(cfg):
     s.add_argument("--context", default="")
     s.add_argument("--crm-person", dest="crm_person", default="",
                    help="path of a person note inside your CRM vault")
-    s.add_argument("--actor", default=human)
+    s.add_argument("--actor", required=True, help=ACTOR_HELP)
     s = sub.add_parser("move")
     s.add_argument("task_id")
     s.add_argument("status", choices=STATUSES)
-    s.add_argument("--actor", default=human)
+    s.add_argument("--actor", required=True, help=ACTOR_HELP)
     s = sub.add_parser("set", help="set due / priority / owner / CRM link")
     s.add_argument("task_id")
     s.add_argument("--due", default=None)
@@ -92,11 +99,11 @@ def build_parser(cfg):
                    choices=["low", "normal", "high", "urgent"])
     s.add_argument("--agent", default=None)
     s.add_argument("--crm-person", dest="crm_person", default=None)
-    s.add_argument("--actor", default=human)
+    s.add_argument("--actor", required=True, help=ACTOR_HELP)
     s = sub.add_parser("archive")
     s.add_argument("task_id")
     s.add_argument("--restore", action="store_true")
-    s.add_argument("--actor", default=human)
+    s.add_argument("--actor", required=True, help=ACTOR_HELP)
     s = sub.add_parser("pass", help="log a work report (never moves a card)")
     s.add_argument("task_id")
     s.add_argument("agent")
@@ -108,7 +115,7 @@ def build_parser(cfg):
     s = sub.add_parser("comment")
     s.add_argument("task_id")
     s.add_argument("text")
-    s.add_argument("--actor", default=human)
+    s.add_argument("--actor", required=True, help=ACTOR_HELP)
     s = sub.add_parser("handoff", help="hand a card on (all 5 fields)")
     s.add_argument("task_id")
     s.add_argument("from_agent")
@@ -128,11 +135,11 @@ def build_parser(cfg):
                        "hand out right now (writes nothing)")
     s.add_argument("--json", action="store_true")
     s = sub.add_parser("intake", help="orchestrator: triage the backlog")
-    s.add_argument("--actor", default=orch)
+    s.add_argument("--actor", required=True, help=ORCH_HELP)
     s = sub.add_parser("dispatch", help="orchestrator: claim a card")
     s.add_argument("task_id")
     s.add_argument("--agent", default=None)
-    s.add_argument("--actor", default=orch)
+    s.add_argument("--actor", required=True, help=ORCH_HELP)
     s = sub.add_parser("commit", help="orchestrator: record + move")
     s.add_argument("task_id")
     s.add_argument("agent")
@@ -142,7 +149,7 @@ def build_parser(cfg):
     s.add_argument("--next", dest="next_step", default="")
     s.add_argument("--key", default="")
     s.add_argument("--intent", default=None, choices=PERFORMATIVES)
-    s.add_argument("--actor", default=orch)
+    s.add_argument("--actor", required=True, help=ORCH_HELP)
     s = sub.add_parser("show", help="one card in full")
     s.add_argument("task_id")
     s.add_argument("--json", action="store_true")
@@ -175,7 +182,7 @@ def main(argv=None):
 def run(args, cfg, store, remirror):
     c = args.cmd
     if c == "serve":
-        server.serve(store, cfg, BASE, port=args.port)
+        return server.serve(store, cfg, BASE, port=args.port)
     elif c == "mirror":
         print("\n".join(mirror.write_mirrors(store, cfg, BASE)) or
               "no summary_note set in config.json - nothing written")
@@ -191,23 +198,32 @@ def run(args, cfg, store, remirror):
             print(f"[{t['status']:>12}] {t['id']}  {t['title']}  "
                   f"({titles.get(t['project_id'], '?')}) "
                   f"{t['assignee_agent'] or '-'}")
+    elif c == "projects":
+        state = store.state()
+        if not state["projects"]:
+            print("No projects yet. Make one with:  python forge.py "
+                  "add-project \"Content week 39\" --dept content "
+                  f"--actor {cfg.get('human', 'you')}")
+        for p in state["projects"]:
+            n = sum(1 for t in state["tasks"] if t["project_id"] == p["id"]
+                    and not t["archived"])
+            print(f"{p['id']}  {p['title']}  [{p['department']}, "
+                  f"{p['status']}]  {n} card(s)")
     elif c == "hygiene":
         from engine import hygiene
-        print(json.dumps(hygiene.run(store, cfg, BASE), indent=2))
+        r = hygiene.run(store, cfg, BASE)
+        alerts = store.open_alerts()
+        titles = {t["id"]: t["title"] for t in store.state()["tasks"]}
+        print(f"checked {r['checked']} card(s): {r['open_alerts']} alert(s), "
+              f"{r['auto_archived']} old Done card(s) archived, "
+              f"{r['reaped']} hung card(s) sent back to Ready")
+        for a in alerts:
+            card = a["task_id"] if a["task_id"] in titles else ""
+            print(f"  [{a['kind']}] {a['message']}"
+                  f"{'  (' + card + ')' if card else ''}")
     elif c == "daemon":
-        import threading
-        import time as _t
-        from engine import hygiene
-
-        def loop():
-            while True:
-                try:
-                    hygiene.run(store, cfg, BASE)
-                except Exception as e:  # noqa: BLE001 keep running
-                    print("health check error:", e)
-                _t.sleep(max(args.interval, 5) * 60)
-        threading.Thread(target=loop, daemon=True).start()
-        server.serve(store, cfg, BASE, port=args.port)
+        return server.serve(store, cfg, BASE, port=args.port,
+                            health_every_min=max(args.interval, 1))
     elif c == "metrics":
         print(json.dumps(store.metrics(args.days), indent=2))
     elif c == "cards":
@@ -224,9 +240,12 @@ def run(args, cfg, store, remirror):
             if not loaded:
                 print("no limit files in cards/ - every agent is unlimited")
     elif c == "add-project":
-        print(store.add_project(args.title, args.dept, summary=args.summary,
-                                actor=args.actor))
+        pid = store.add_project(args.title, args.dept, summary=args.summary,
+                                actor=args.actor)
         remirror()
+        print(pid)
+        print(f"  add a card to it:  python forge.py add-task {pid} "
+              f"\"Card title\" --actor {args.actor}")
     elif c == "add-task":
         print(store.add_task(args.project_id, args.title, status=args.status,
                              assignee_agent=args.agent, notes=args.notes,

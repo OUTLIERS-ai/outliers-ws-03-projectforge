@@ -55,8 +55,8 @@ def test_human_card_never_dispatched(store):
 def test_federation_idempotent(store):
     payload = {**FED, "tasks": [{**FED["tasks"][0], "passes": [
         {"agent": "research-bot", "summary": "found", "key": "o1|found"}]}]}
-    r1 = store.federate(payload)
-    r2 = store.federate(payload)
+    r1 = store.federate(payload, actor="crm-today")
+    r2 = store.federate(payload, actor="crm-today")
     assert r1["tasks"][0]["created"] is True
     assert r2["tasks"][0]["created"] is False
     assert store.conn.execute("SELECT COUNT(*) c FROM tasks").fetchone()[
@@ -65,16 +65,16 @@ def test_federation_idempotent(store):
 
 
 def test_orch_claimed_freeze(store):
-    store.federate(FED)
+    store.federate(FED, actor="crm-today")
     tid = store.conn.execute(
         "SELECT id FROM tasks WHERE external_ref='o1'").fetchone()["id"]
     store.dispatch(tid, actor=ORCH)
-    store.federate(FED)  # the source still says 'ready'
+    store.federate(FED, actor="crm-today")  # the source still says 'ready'
     assert store.task_detail(tid)["task"]["status"] == "in_progress"
 
 
 def test_wip_and_tracking(store):
-    store.federate({"source_app": "tracker",
+    store.federate(actor="tracker", payload={"source_app": "tracker",
                     "project": {"ref": "fp", "title": "F",
                                 "department": "operations"},
                     "tasks": [{"ref": "P1", "title": "a number we watch",
@@ -170,18 +170,19 @@ def test_intake_routing_by_keyword(store):
 
 
 def test_federation_updated_honesty(store):
-    store.federate(FED)
+    store.federate(FED, actor="crm-today")
     store.conn.execute("UPDATE tasks SET updated=?, synced=''", (SENT,))
     store.conn.commit()
     before = store.conn.execute("SELECT COUNT(*) c FROM events").fetchone()[
         "c"]
-    store.federate(FED)
+    store.federate(FED, actor="crm-today")
     t = store.conn.execute("SELECT updated, synced FROM tasks").fetchone()
     after = store.conn.execute("SELECT COUNT(*) c FROM events").fetchone()["c"]
     assert t["updated"] == SENT and t["synced"] != ""
     assert after == before
     store.federate({**FED, "tasks": [{**FED["tasks"][0],
-                                      "status": "in_progress"}]})
+                                      "status": "in_progress"}]},
+                   actor="crm-today")
     t = store.conn.execute("SELECT updated, status FROM tasks").fetchone()
     assert t["updated"] != SENT and t["status"] == "in_progress"
 

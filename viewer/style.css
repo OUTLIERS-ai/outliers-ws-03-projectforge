@@ -914,3 +914,116 @@ header::after {
 #toast.hidden { display: none; }
 
 .ev .dot { flex: none; }
+
+/* ================= 2026-09-22 fix round ================= */
+/* the header wraps on a laptop screen instead of hiding buttons */
+header { flex-wrap: wrap; row-gap: 10px; }
+.pills { min-width: 180px; }
+.new-project {
+  flex: none; padding: 7px 14px; border-radius: 999px; font-size: 12.5px;
+  background: transparent; color: var(--accent);
+  border: 1px dashed var(--accent); box-shadow: none;
+}
+.new-project:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+button.pill { font: inherit; font-size: 12.5px; font-weight: 600; }
+button.pill:hover { box-shadow: none; }
+button.help {
+  width: 30px; height: 30px; padding: 0; border-radius: 50%; flex: none;
+  background: transparent; color: var(--text); border: 1px solid var(--panel-border);
+  box-shadow: none; font-size: 14px;
+}
+button.stat {
+  background: none; border: none; box-shadow: none; padding: 0;
+  color: inherit; cursor: pointer; border-radius: 8px;
+}
+button.stat:hover { transform: none; box-shadow: none; outline: 1px solid var(--panel-border); }
+.stat.bad span { color: #ff6b6b; }
+.stat label { cursor: inherit; }
+
+/* activity: a small dot for every kind of event; refusals in red */
+.ev .dot.ev-moved { background: var(--ok); }
+.ev .dot.ev-handoff { background: #b06bff; }
+.ev .dot.ev-pass, .ev .dot.ev-comment { background: #5b8def; }
+.ev .dot.ev-refused, .ev .dot.ev-escalation { background: #ff6b6b; }
+.ev.ev-bad { background: rgba(255, 107, 107, 0.07); border-radius: 8px; padding: 8px 6px; }
+.ev.clickable { cursor: pointer; }
+.ev.clickable:hover .body { color: var(--text); }
+.refused-text { color: #ff6b6b; font-weight: 700; letter-spacing: .4px; }
+.last-check { text-transform: none; letter-spacing: 0; font-weight: 400; margin-left: 6px; }
+button.linkish {
+  background: none; box-shadow: none; padding: 0; margin-top: 6px;
+  color: var(--dim); font-size: 11px; text-decoration: underline;
+}
+button.linkish:hover { color: var(--text); transform: none; box-shadow: none; }
+
+/* your column comes first and stands out */
+.col.yours .col-head { outline: 1px solid color-mix(in srgb, var(--warn) 55%, transparent); }
+.col.flash .col-head { animation: pf-flash 1.4s ease; }
+@keyframes pf-flash { 0%, 60% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--warn) 60%, transparent); } 100% { box-shadow: none; } }
+.card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* the first-run steps on an empty board */
+.first-run {
+  flex: none; width: 330px; align-self: flex-start;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: var(--radius); padding: 18px 20px;
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  font-size: 13.5px; line-height: 1.5;
+}
+.first-run h2 { font-size: 15px; margin-bottom: 10px; }
+.first-run ol { padding-left: 20px; display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+.first-run button { margin-left: 6px; padding: 4px 10px; font-size: 12px; }
+.first-run code, .q-explain code, .rules code, #modal .note code {
+  font-family: 'Cascadia Mono', Consolas, monospace; font-size: 12px;
+  background: var(--panel); padding: 1px 5px; border-radius: 5px;
+}
+.form-hint { font-size: 12px; color: var(--warn); margin: 6px 0 4px; }
+.warn-text { display: block; color: var(--warn); font-size: 11.5px; margin-top: 4px; text-transform: none; letter-spacing: 0; }
+
+/* Queue and Agents views stack their header over their content */
+#board[data-view="queue"], #board[data-view="agents"] { flex-direction: column; }
+.agents-row { display: flex; gap: 14px; }
+.agents-key, .q-explain {
+  font-size: 12.5px; line-height: 1.55; color: var(--dim);
+  border: 1px solid var(--panel-border); border-radius: 10px;
+  padding: 10px 14px; background: var(--panel);
+}
+.agents-key b, .q-explain b { color: var(--text); }
+.agents-key a, .q-explain a { color: var(--accent); margin-left: 6px; }
+.q-explain { margin: 0 0 14px; }
+.key-dots { display: block; margin-top: 6px; }
+.key-dots .s-dot { display: inline-block; margin: 0 3px 0 10px; vertical-align: middle; }
+.role-line { padding: 0 4px; }
+.role {
+  display: inline-block; font-size: 10.5px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 1px; padding: 2px 8px; border-radius: 999px;
+  border: 1px solid var(--panel-border); color: var(--dim);
+}
+.role.r-manager { color: #b06bff; border-color: rgba(176, 107, 255, .5); }
+.role.r-worker { color: #5b8def; border-color: rgba(91, 141, 239, .5); }
+.role.r-orchestrator { color: var(--ok); border-color: rgba(60, 207, 110, .5); }
+.role.r-you { color: var(--warn); border-color: rgba(255, 176, 46, .5); }
+table.rules { width: 100%; border-collapse: collapse; font-size: 13px; margin: 12px 0; }
+table.rules th, table.rules td { text-align: left; padding: 8px; border-bottom: 1px solid var(--panel-border); vertical-align: top; }
+table.rules th { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+#modal .note { font-size: 13px; line-height: 1.55; margin: 8px 0; }
+#d-projlink { color: inherit; text-decoration: underline dotted; }
+
+/* readable small text */
+.src, .ev .ts { font-size: 11px; }
+.stat label { font-size: 10.5px; }
+
+/* a laptop screen: narrower columns and activity list */
+@media (max-width: 1500px) {
+  .col { min-width: 212px; width: 212px; }
+  #activity { width: 240px; }
+  #search { width: 150px; }
+}
+
+/* Paper theme: dark text on the selected buttons (was white on pale) */
+:root[data-theme="paper"] .pill.active,
+:root[data-theme="paper"] .toggle button.active { color: #7c2d12; }
+:root[data-theme="paper"] .pill { color: #4b5563; }
+:root[data-theme="paper"] .refused-text,
+:root[data-theme="paper"] .stat.bad span { color: #b91c1c; }
+:root[data-theme="paper"] button.help { color: #1f2430; }

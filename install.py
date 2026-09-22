@@ -30,6 +30,8 @@ from pathlib import Path
 BASE = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE))
 
+MARKER = "installed by outliers-ws-03-projectforge"
+
 MIN_PY = (3, 9)
 
 
@@ -152,7 +154,9 @@ def write_if_changed(path, text, backup=False):
         old = path.read_text(encoding="utf-8", errors="replace")
         if old == text:
             return "unchanged"
-        if backup:
+        # back up the member's own file, never our own earlier copy: a 2nd
+        # install would otherwise bury their original under ours
+        if backup and MARKER not in old:
             stamp = time.strftime("%Y%m%d-%H%M%S")
             shutil.copy2(path, path.with_name(f"{path.name}.bak-{stamp}"))
         atomic_write(path, text)
@@ -184,6 +188,10 @@ Agent work is recorded on the ProjectForge board. The tool is
   `python "{a}" handoff --card <id> --from <me> --to <next> --done "..." --decisions "... because ..." --state "..." --next-first "..." --warnings "none"`.
 - Workers only append (pass, handoff, comment, escalate). Managers ({mgr})
   may also `open` cards. Only the orchestrator (/forge-run) moves cards.
+- A handover also makes the receiving agent the card's owner.
+- Need a person? `python "{a}" escalate --card <id> --agent <name> --note "..."`
+  (shown in red on the board; the card does not move).
+- Agents use only this tool, never forge.py.
 
 ## Paste into each worker agent's file
 
@@ -236,8 +244,8 @@ def interview(args, ask, existing):
             "add agents later and re-run the installer.")
 
     say("\n4. Managers: which agents may OPEN new cards? Everyone else may "
-        "only add work reports.\n   Names separated by commas, or blank for "
-        "none (then only you open cards).")
+        "only add work reports.\n   Names separated by commas. No default: "
+        "press Enter for none (then only you open cards).")
     mgr_default = args.managers if args.managers is not None else \
         ",".join(existing.get("managers", []))
     managers = split_names(ask.ask("   Managers", mgr_default))
@@ -248,7 +256,7 @@ def interview(args, ask, existing):
 
     say("\n5. Which agents' work reaches other people (posts, emails, "
         "messages)?\n   Their finished cards stop in Review for you to check. "
-        "Commas, or blank.")
+        "Commas. No default: press Enter for none.")
     out_default = args.outward if args.outward is not None else \
         ",".join(existing.get("outward_owners", []))
     outward = split_names(ask.ask("   Outward agents", out_default))
@@ -269,7 +277,8 @@ def interview(args, ask, existing):
         (Path(sb) / ".claude" / "commands")
 
     say("\n8. A board summary note in your second brain (a markdown copy of "
-        "the board,\n   rewritten after every change). Type 'none' to skip.")
+        "the board,\n   rewritten after every change). Press Enter to write "
+        "it at the path shown,\n   or type 'none' for no note.")
     note_default = args.summary_note if args.summary_note is not None else \
         (existing.get("summary_note") or
          str(Path(sb) / "ProjectForge Board.md"))
@@ -313,6 +322,12 @@ def do_install(args):
     new_cfg.setdefault("workspace", "My AI Workforce")
     new_cfg.setdefault("orchestrator", "orchestrator")
     new_cfg.setdefault("db_path", "data/forge.db")
+    # write the settings members are told to edit, so they can see them
+    import copy
+    from engine.config import DEFAULTS
+    for key in ("departments", "hygiene", "intake", "crm_today",
+                "federate_sources", "schedule"):
+        new_cfg.setdefault(key, copy.deepcopy(DEFAULTS[key]))
 
     say("\nAbout to:")
     say(f"  write   {cpath}")
@@ -383,8 +398,10 @@ def do_install(args):
 Next:
   1. Open the board:      python forge.py serve
      then visit          http://127.0.0.1:{cfg['port']}
+     (leave that window open; Ctrl+C in it stops the board)
   2. Paste the lines in  {snippet}
-     into your CLAUDE.md so your agents know to log their work.
+     into the CLAUDE.md every session reads ({claude_home() / 'CLAUDE.md'}),
+     or your vault's CLAUDE.md if you chose "vault" at question 7.
   3. In Claude Code, try  /forge-run dry  (a preview that changes nothing).
 Nothing runs on a timer. To add the optional schedule later:
      python tools/schedule.py --print""")
@@ -407,9 +424,11 @@ def do_uninstall(args):
     cmd = Path(cfg.get("command_path", ""))
     if cmd.is_file():
         body = cmd.read_text(encoding="utf-8", errors="replace")
-        if "installed by outliers-ws-03-projectforge" in body:
+        if MARKER in body:
             os.replace(cmd, cmd.with_name(f"{cmd.name}.removed-{stamp}"))
-            baks = sorted(cmd.parent.glob(f"{cmd.name}.bak-*"))
+            baks = [b for b in sorted(cmd.parent.glob(f"{cmd.name}.bak-*"))
+                    if MARKER not in b.read_text(encoding="utf-8",
+                                                  errors="replace")]
             if baks:
                 shutil.copy2(baks[-1], cmd)
                 say(f"  restored your earlier {cmd.name} from {baks[-1].name}")
@@ -426,8 +445,9 @@ def do_uninstall(args):
                         "--remove"],
                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW",
                                              0))
-    say(f"Done. Your board is still in {BASE / 'data'} and your settings in "
-        f"{cpath}.")
+    from engine.config import db_path
+    say(f"Done. Your board is still in {db_path(cfg).parent} and your "
+        f"settings in {cpath}.")
     return 0
 
 

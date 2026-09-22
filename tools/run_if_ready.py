@@ -11,7 +11,12 @@ database and with no AI, how many cards a pass could hand out. If the answer
 is 0 it writes one line to data/run_if_ready.log and exits. Claude is never
 started. Only when a card is ready does it run:
 
-    claude -p "/forge-run"
+    claude -p "/forge-run" --permission-mode dontAsk --allowedTools ...
+
+"dontAsk" means Claude never stops to ask a question nobody is there to
+answer: it may use the board commands listed in allowed_tools() below, plus
+whatever you have already allowed in your own Claude Code settings, and
+everything else is refused. See allowed_tools() for the exact list.
 
 Run it by hand, or let tools/schedule.py run it on a timer (off by default).
 
@@ -51,14 +56,57 @@ def count_work(cfg):
         store.close()
 
 
+def find_claude(cfg):
+    """The full path to Claude Code. A schedule starts with a bare PATH
+    (on a Mac launchd has no Homebrew folder), so the path saved by
+    tools/schedule.py --install is tried first."""
+    saved = (cfg.get("schedule") or {}).get("claude_path") or ""
+    if saved and os.path.isfile(saved):
+        return saved
+    return shutil.which("claude")
+
+
+def allowed_tools(cfg):
+    """Exactly the board commands an unattended /forge-run needs.
+
+    The session runs in "dontAsk" mode: anything not on this list, and not
+    already allowed in your own Claude Code settings, is refused without a
+    question (nobody is there to answer one). The list:
+      - the orchestrator's own forge.py steps: waiting, next, intake,
+        dispatch, commit, and moving a card INTO Awaiting You;
+      - the agents' tool (card, pass, handoff, comment, escalate, mywork);
+      - Agent / Task (to start the owner agent) and Read.
+    Tools your agents need for their real work (Write, Edit, web search)
+    come from your own settings, or add them to schedule.extra_allowed_tools
+    in config.json.
+    """
+    forge = f'python "{BASE.as_posix()}/forge.py"'
+    adir = cfg.get("adapter_dir") or str(BASE / "adapters")
+    agent = f'python "{Path(adir).as_posix()}/forge_agent.py"'
+    orch = cfg.get("orchestrator", "orchestrator")
+    rules = [f"Bash({forge} waiting)", f"Bash({forge} waiting *)",
+             f"Bash({forge} next *)", f"Bash({forge} intake --actor {orch})",
+             f"Bash({forge} dispatch * --actor {orch})",
+             f"Bash({forge} commit * --actor {orch})",
+             f"Bash({forge} move * awaiting_you --actor {orch})"]
+    for sub in ("card", "pass", "handoff", "comment", "escalate", "mywork"):
+        rules.append(f"Bash({agent} {sub} *)")
+    # the same commands typed into the PowerShell tool on Windows
+    rules += [f"PowerShell({r[5:-1]})" for r in rules]
+    rules += ["Agent", "Task", "Read"]
+    rules += list((cfg.get("schedule") or {}).get("extra_allowed_tools") or [])
+    return rules
+
+
 def claude_command(cfg):
-    exe = shutil.which("claude")
+    exe = find_claude(cfg)
     if not exe:
         return None
-    cmd = [exe, "-p", "/forge-run"]
+    cmd = [exe, "-p", "/forge-run", "--permission-mode", "dontAsk"]
     model = (cfg.get("schedule") or {}).get("model") or ""
     if model:
         cmd += ["--model", model]
+    cmd += ["--allowedTools", *allowed_tools(cfg)]
     return cmd
 
 
@@ -88,9 +136,14 @@ def main(argv=None):
         return 2
     cwd = cfg.get("orchestrator_cwd") or cfg.get("second_brain") or str(BASE)
     log_line(cfg, msg + " - starting Claude")
+    print(msg + " - starting Claude. This can take up to 45 minutes and "
+          "prints nothing here; what happened is written to "
+          + str(Path(cfg["_path"]).parent / "data" / "run_if_ready.log"),
+          flush=True)
     try:
         r = subprocess.run(cmd, cwd=cwd if os.path.isdir(cwd) else None,
-                           capture_output=True, text=True, timeout=45 * 60,
+                           capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=45 * 60,
                            creationflags=NO_WINDOW)
         tail = (r.stdout or "").strip().splitlines()[-1:] or [""]
         log_line(cfg, f"Claude finished, exit {r.returncode}: {tail[0][:200]}")

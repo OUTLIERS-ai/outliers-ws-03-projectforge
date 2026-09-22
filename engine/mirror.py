@@ -6,6 +6,7 @@ file and os.replace, so Obsidian never sees half a note.
 """
 import time
 from pathlib import Path
+from urllib.parse import quote
 
 from .config import atomic_write
 from .db import STATUSES
@@ -27,6 +28,18 @@ tags: [projectforge, board, auto-generated]
 > it is rewritten after every change. Regenerate with `python forge.py mirror`.
 
 """
+
+
+def crm_link(rel, config):
+    """A link that opens the person's note in the CRM vault. The summary
+    note lives in your second brain, so a [[wiki link]] would look in the
+    wrong vault; an obsidian:// link names the file by its full path."""
+    vault = (config.get("crm_vault") or "").replace("\\", "/").rstrip("/")
+    name = Path(rel).stem
+    if not vault:
+        return f"{name} ({rel} in your CRM vault)"
+    full = f"{vault}/{rel.replace(chr(92), '/').lstrip('/')}"
+    return f"[{name}](obsidian://open?path={quote(full, safe='')})"
 
 
 def render(state, config) -> str:
@@ -55,8 +68,8 @@ def render(state, config) -> str:
     if waiting:
         lines += ["## Awaiting you", ""]
         for t in waiting:
-            person = f" - person: [[{t['crm_person']}]]" if t.get(
-                "crm_person") else ""
+            person = f" - person: {crm_link(t.get('crm_person'), config)}" \
+                if t.get("crm_person") else ""
             lines.append(f"- **{t['title']}** ({t['id']}) - agent: "
                          f"{t['assignee_agent'] or '-'}{person}")
         lines.append("")

@@ -3,6 +3,11 @@
 Copy this one file into any program of your own so it can push its work onto
 the board over the local web API. Python standard library only.
 
+The board refuses programs it does not know. Add the program's name (the
+first argument to ForgeClient) to "federate_sources" in config.json, for
+example  "federate_sources": ["crm-today", "my-script"],  and restart the
+board.
+
 The board never blocks the program sending to it: if the board is not
 running, every call quietly returns None and the program carries on.
 
@@ -81,6 +86,9 @@ class ForgeClient:
         is unreachable."""
         payload = {
             "source_app": self.source_app,
+            # the board only accepts programs named in config.json
+            # "federate_sources"; add this program's name there
+            "actor": self.source_app,
             "project": project,
             "tasks": tasks or [],
         }

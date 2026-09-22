@@ -26,11 +26,36 @@ sys.path.insert(0, str(BASE))
 from engine.config import load_config  # noqa: E402
 from engine.db import open_store  # noqa: E402
 
-ROW = re.compile(r"^\|\s*(\d+)\s*\|(.+?)\|(.+?)\|(.*?)\|\s*$")
+# rank | person | why | when   (a [[link|alias]] may carry a | of its own)
+ROW = re.compile(
+    r"^\|\s*(\d+)\s*\|((?:\[\[[^\]]*\]\]|[^|])+)\|(.+?)\|(.*?)\|\s*$")
+
+
+def clean_person(cell):
+    """The person's name from a table cell. Accepts Dan Pike, [[Dan Pike]],
+    [[People/Dan Pike]], [[People/Dan Pike.md]] and [[Dan Pike|Dan]]."""
+    s = cell.strip()
+    m = re.search(r"\[\[([^\]]+)\]\]", s)
+    if m:
+        s = m.group(1)
+    s = s.split("|")[0].strip()
+    if s.lower().startswith("people/"):
+        s = s[len("people/"):]
+    if s.lower().endswith(".md"):
+        s = s[:-3]
+    return s.strip()
 
 
 def read_today(crm_vault):
-    """Return [{'rank','person','reason','when'}] from Today.md."""
+    """Return [{'rank','person','reason','when'}] from Today.md.
+
+    The page needs a table whose rows look like this (the header row and the
+    |---| row are skipped because they do not start with a number):
+
+        | 1 | [[Dan Pike]] | Asked about payroll | Call back today |
+
+    rank, the person's name (matching People/Dan Pike.md), why, when.
+    """
     page = Path(crm_vault) / "Today.md"
     if not page.is_file():
         return None
@@ -39,7 +64,7 @@ def read_today(crm_vault):
         m = ROW.match(line.strip())
         if not m:
             continue
-        person = m.group(2).strip().strip("[]").split("|")[0].strip()
+        person = clean_person(m.group(2))
         rows.append({"rank": int(m.group(1)), "person": person,
                      "reason": m.group(3).strip(), "when": m.group(4).strip()})
     return rows
@@ -89,16 +114,22 @@ def main(argv=None):
     if a.dry_run:
         for t in payload["tasks"]:
             print(f"would add: {t['title']}  [{t['status']}]  "
-                  f"{t['crm_person'] or '(no person note found)'}")
+                  f"{t['crm_person'] or '(no person note found: the name must match a file in People/)'}")
         print(f"{len(payload['tasks'])} card(s). Nothing written.")
         return 0
     store = open_store(cfg)
     try:
-        r = store.federate(payload)
+        r = store.federate(payload, actor="crm-today")
+        try:
+            from engine import mirror
+            mirror.write_mirrors(store, cfg, BASE)  # keep the summary note current
+        except OSError:
+            pass
     finally:
         store.close()
     made = sum(1 for t in r["tasks"] if t["created"])
-    print(f"{made} new card(s), {len(r['tasks']) - made} updated.")
+    print(f"{made} new card(s), {len(r['tasks']) - made} already on the "
+          f"board (brought up to date, never copied).")
     return 0
 
 

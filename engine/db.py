@@ -47,7 +47,9 @@ RESULT_TRANSITION = {
     "needs-review": "review",
     "blocked": "blocked",
     "failed": "blocked",
-    "progressed": "in_progress",
+    # nobody is working on it once the agent has replied, so it goes back
+    # to Ready and the next /forge-run carries it on
+    "progressed": "ready",
 }
 
 SCHEMA = """
@@ -164,10 +166,12 @@ def _locked(method):
 
 
 class Store:
-    def __init__(self, db_path, roles=None):
+    def __init__(self, db_path, roles=None, departments=None):
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.roles = roles or Roles()
+        # the department ids from config; empty = any department accepted
+        self.departments = [d for d in (departments or []) if d]
         self.conn = sqlite3.connect(self.db_path, check_same_thread=False,
                                     timeout=15)
         self.conn.row_factory = sqlite3.Row
@@ -198,8 +202,40 @@ class Store:
             raise KeyError(task_id)
         return row
 
-    def _need(self, ok, actor, what):
-        self.roles.require(ok, actor, what)
+    def _need(self, ok, actor, what, entity_id=""):
+        try:
+            self.roles.require(ok, actor, what)
+        except NotAllowed as e:
+            self._refused(actor, entity_id, str(e))
+            raise
+
+    def _refused(self, actor, entity_id, message):
+        """Write a refusal to the activity list, so you can see which agent
+        tried to break the rules, on which card, and how often."""
+        try:
+            self.conn.rollback()  # drop any half-made change first
+            self.log((actor or "").strip() or "(no name)", "task",
+                     entity_id or "-", "refused", {"message": message})
+        except sqlite3.Error:
+            pass  # never let the record of a refusal hide the refusal
+
+    @_locked
+    def refusals_today(self):
+        return self.conn.execute(
+            "SELECT COUNT(*) FROM events WHERE action='refused' AND ts>=?",
+            (time.strftime("%Y-%m-%d") + " 00:00:00",)).fetchone()[0]
+
+    def _check_department(self, department):
+        if self.departments and department not in self.departments:
+            raise ValueError(
+                f"unknown department '{department}'. Use one of: "
+                f"{', '.join(self.departments)} (they are listed in "
+                f"config.json under departments)")
+
+    @staticmethod
+    def _check_title(title):
+        if not (title or "").strip():
+            raise ValueError("a card needs a title")
 
     # -- events -----------------------------------------------------------
     @_locked
@@ -217,6 +253,9 @@ class Store:
                     visibility="normal", actor=None, status="active",
                     external_ref=""):
         self._need(self.roles.can_open(actor), actor, "open a project")
+        if not (title or "").strip():
+            raise ValueError("a project needs a title")
+        self._check_department(department)
         pid = new_id("pf-p")
         ts = now()
         self.conn.execute(
@@ -231,13 +270,18 @@ class Store:
 
     @_locked
     def update_project(self, project_id, fields, actor=None):
-        self._need(self.roles.can_edit(actor), actor, "edit a project")
+        self._need(self.roles.can_edit(actor), actor, "edit a project",
+                   project_id)
         allowed = ["title", "summary", "department", "status"]
         sets = {k: fields[k] for k in allowed if k in fields}
         if not sets:
             return
         if sets.get("status") and sets["status"] not in PROJECT_STATUSES:
             raise ValueError(f"unknown project status: {sets['status']}")
+        if "title" in sets and not (sets["title"] or "").strip():
+            raise ValueError("a project needs a title")
+        if "department" in sets:
+            self._check_department(sets["department"])
         if self.conn.execute("SELECT id FROM projects WHERE id=?",
                              (project_id,)).fetchone() is None:
             raise KeyError(project_id)
@@ -265,11 +309,14 @@ class Store:
                  context_ref="", notes="", actor=None, crm_person=""):
         """Open a card. Only you or a manager may do this."""
         self._need(self.roles.can_open(actor), actor, "open a card")
+        self._check_title(title)
         if status not in STATUSES:
             raise ValueError(f"unknown status: {status}")
         if self.conn.execute("SELECT id FROM projects WHERE id=?",
                              (project_id,)).fetchone() is None:
-            raise KeyError(project_id)
+            raise ValueError(
+                f"no project with the id '{project_id}'. See the ids with: "
+                f"python forge.py projects")
         tid = new_id("pf-t")
         ts = now()
         self.conn.execute(
@@ -302,15 +349,23 @@ class Store:
     def move_task(self, task_id, status, actor=None):
         """Move a card to another column. Only the orchestrator (or you)."""
         self._need(self.roles.can_move(actor), actor,
-                   "move a card between columns")
+                   "move a card between columns", task_id)
         if status not in STATUSES:
             raise ValueError(f"unknown status: {status}")
         row = self._task_row(task_id)
+        self._guard_awaiting_you(row, status, actor)
         self.conn.execute("UPDATE tasks SET status=?, updated=? WHERE id=?",
                           (status, now(), task_id))
         self.conn.commit()
         self.log(actor, "task", task_id, "moved",
                  {"from": row["status"], "to": status})
+
+    def _guard_awaiting_you(self, row, status, actor):
+        """Awaiting You is yours: nobody but you takes a card out of it."""
+        if row["status"] == "awaiting_you" and status != "awaiting_you" \
+                and self.roles.kind(actor) != "you":
+            self._need(False, actor,
+                       "take a card out of Awaiting You", row["id"])
 
     @_locked
     def reorder(self, status, ids, actor=None):
@@ -318,16 +373,17 @@ class Store:
         if status not in STATUSES:
             raise ValueError(f"unknown status: {status}")
         for i, tid in enumerate(ids):
-            row = self.conn.execute("SELECT status FROM tasks WHERE id=?",
+            row = self.conn.execute("SELECT id, status FROM tasks WHERE id=?",
                                     (tid,)).fetchone()
             if row is None:
                 continue
             if row["status"] != status:
                 self._need(self.roles.can_move(actor), actor,
-                           "move a card between columns")
+                           "move a card between columns", tid)
+                self._guard_awaiting_you(row, status, actor)
             else:
                 self._need(self.roles.can_edit(actor), actor,
-                           "reorder a column")
+                           "reorder a column", tid)
             self.conn.execute(
                 "UPDATE tasks SET status=?, position=?, updated=? WHERE id=?",
                 (status, i + 1, now(), tid))
@@ -338,7 +394,7 @@ class Store:
 
     @_locked
     def set_tags(self, task_id, tags, actor=None):
-        self._need(self.roles.can_edit(actor), actor, "tag a card")
+        self._need(self.roles.can_edit(actor), actor, "tag a card", task_id)
         clean = sorted({t.strip().lower().replace(" ", "-")
                         for t in tags if t and t.strip()})
         self._task_row(task_id)
@@ -350,7 +406,7 @@ class Store:
 
     @_locked
     def update_task(self, task_id, fields, actor=None):
-        self._need(self.roles.can_edit(actor), actor, "edit a card")
+        self._need(self.roles.can_edit(actor), actor, "edit a card", task_id)
         allowed = ["title", "notes", "assignee_agent", "context_ref",
                    "due", "priority", "project_id", "crm_person"]
         sets = {k: fields[k] for k in allowed if k in fields}
@@ -358,6 +414,14 @@ class Store:
             return
         if sets.get("priority") and sets["priority"] not in PRIORITIES:
             raise ValueError(f"unknown priority: {sets['priority']}")
+        if "title" in sets:
+            self._check_title(sets["title"])
+            sets["title"] = sets["title"].strip()
+        row = self._task_row(task_id)
+        # only log the fields that really changed
+        sets = {k: v for k, v in sets.items() if row[k] != v}
+        if not sets:
+            return
         if sets.get("project_id") and self.conn.execute(
                 "SELECT id FROM projects WHERE id=?",
                 (sets["project_id"],)).fetchone() is None:
@@ -373,7 +437,7 @@ class Store:
     def set_archived(self, task_id, archived=True, actor=None):
         self._need(self.roles.can_edit(actor) or
                    self.roles.kind(actor) == "system", actor,
-                   "archive a card")
+                   "archive a card", task_id)
         self._task_row(task_id)
         self.conn.execute("UPDATE tasks SET archived=?, updated=? WHERE id=?",
                           (1 if archived else 0, now(), task_id))
@@ -383,7 +447,7 @@ class Store:
 
     @_locked
     def set_checklist(self, task_id, items, actor=None):
-        self._need(self.roles.can_edit(actor), actor, "edit a checklist")
+        self._need(self.roles.can_edit(actor), actor, "edit a checklist", task_id)
         self._task_row(task_id)
         clean = [{"text": str(i.get("text", "")).strip(),
                   "done": bool(i.get("done"))}
@@ -400,7 +464,7 @@ class Store:
     def set_blockers(self, task_id, blocker_ids, actor=None):
         """Say which cards must finish first. Refuses a loop (A waits on B
         waits on A)."""
-        self._need(self.roles.can_edit(actor), actor, "set blockers")
+        self._need(self.roles.can_edit(actor), actor, "set blockers", task_id)
         self._task_row(task_id)
         ids = [b for b in blocker_ids if b]
         graph = {}
@@ -471,6 +535,21 @@ class Store:
         self.log(actor, "task", task_id, "comment", {"text": text})
 
     @_locked
+    def escalate(self, task_id, note, actor=None):
+        """A worker asks for help. Adds a flagged entry to the card's
+        activity (shown in red on the board). It does not move the card:
+        workers never move cards."""
+        if not (actor or "").strip():
+            raise NotAllowed("refused: an escalation needs the agent's name")
+        if not (note or "").strip():
+            raise ValueError("an escalation needs a note saying what you need")
+        self._task_row(task_id)
+        self.conn.execute("UPDATE tasks SET updated=? WHERE id=?",
+                          (now(), task_id))
+        self.conn.commit()
+        self.log(actor, "task", task_id, "escalation", {"text": note})
+
+    @_locked
     def handoff(self, task_id, from_agent, to_agent, done="", decisions="",
                 state="", next_first="", warnings="", context="",
                 intent="DELEGATE", actor=None):
@@ -485,6 +564,8 @@ class Store:
                   "next_first": next_first, "warnings": warnings}
         problems = check_handover(fields)
         if problems:
+            self._refused(from_agent, task_id,
+                          "handover refused: " + "; ".join(problems))
             raise ValueError("handover refused - a handover must carry all 5 "
                              "fields: " + "; ".join(problems))
         self._task_row(task_id)
@@ -597,8 +678,11 @@ class Store:
                      ("crm_person", crm_person)):
             if v is None:
                 continue
-            if k == "status" and v != row["status"] and row["orch_claimed"]:
-                status_held = True  # the orchestrator owns it now
+            if k == "status" and v != row["status"] and (
+                    row["orch_claimed"] or row["status"] == "awaiting_you"):
+                # the orchestrator owns it now, or it is waiting for you:
+                # a program re-sending its old column cannot move it
+                status_held = True
                 continue
             sets[k] = v
         changed = {k: v for k, v in sets.items() if row[k] != v}
@@ -624,9 +708,14 @@ class Store:
         self.log(actor, "task", tid, "moved" if moved else "federated", detail)
         return {"id": tid, "created": False}
 
-    def federate(self, payload):
+    def federate(self, payload, actor=None):
         """Take a batch from one source program: a project and its cards,
-        each keyed by the source's own id. Safe to call again and again."""
+        each keyed by the source's own id. Safe to call again and again.
+        Only you, or a program named in config "federate_sources", may."""
+        with self._lock:
+            self._need(self.roles.can_federate(actor), actor,
+                       "push cards onto the board (add the program's name "
+                       "to federate_sources in config.json)")
         src = payload.get("source_app")
         if not src:
             raise ValueError("source_app is required")
@@ -729,6 +818,8 @@ class Store:
                 hold = "no_owner"
             elif kind == "you":
                 hold = "yours"  # a human card: never handed to an agent
+            elif not self.roles.known_agent(owner):
+                hold = "unknown_agent"  # a typo, or an agent not installed
             elif at_cap:
                 hold = "wip_cap"
             else:
@@ -864,12 +955,21 @@ class Store:
         self._need(self.roles.is_orchestrator(actor), actor,
                    "dispatch a card")
         row = self._task_row(task_id)
+        if row["status"] != "ready":
+            raise ValueError(
+                f"only a card in Ready can be claimed; this one is in "
+                f"{row['status']}. It may already be claimed by another "
+                f"/forge-run.")
         owner = agent or row["assignee_agent"]
         if not owner:
             raise ValueError("task has no owner agent to dispatch to")
         if self.roles.kind(owner) == "you":
             raise ValueError("this card is yours - the orchestrator does not "
                              "hand your cards to an agent")
+        if not self.roles.known_agent(owner):
+            raise ValueError(f"'{owner}' is not one of your agents (check the "
+                             f"spelling on the card, or re-run install.py "
+                             f"after adding the agent)")
         if cards:
             dept = self.conn.execute(
                 "SELECT department FROM projects WHERE id=?",
@@ -941,6 +1041,11 @@ class Store:
             if result not in PASS_RESULTS:
                 raise ValueError(f"unknown result: {result}")
             cur = self._task_row(task_id)
+            if cur["status"] not in ("in_progress", "awaiting_you"):
+                raise ValueError(
+                    f"commit is for a card the orchestrator claimed (In "
+                    f"Progress); this one is in {cur['status']}. Claim it "
+                    f"first with dispatch.")
             logged = self.add_pass(task_id, agent, summary, outputs=outputs,
                                    result=result, next_step=next_step,
                                    dedup_key=dedup_key, intent=intent)
@@ -1115,7 +1220,9 @@ class Store:
 def open_store(cfg):
     """The store for a loaded config, with that config's roles."""
     from .config import db_path, roles_from
-    return Store(db_path(cfg), roles=roles_from(cfg))
+    return Store(db_path(cfg), roles=roles_from(cfg),
+                 departments=[d.get("id") for d in
+                              cfg.get("departments", []) or []])
 
 
 __all__ = ["Store", "open_store", "NotAllowed", "STATUSES", "PASS_RESULTS",

@@ -1,9 +1,26 @@
 """The web board. Python standard library only; nothing to install.
 
 Serves the viewer (viewer/) and a small JSON API over the store. Listens on
-127.0.0.1 only, so nothing outside your own computer can reach it.
+127.0.0.1 only, so no other computer can reach it.
+
+3 guards stop a web page you happen to visit from using the board (the same
+3 guards the Jeeves download uses):
+  - Host check on every request: it must be addressed to 127.0.0.1 or
+    localhost. This stops "DNS rebinding", a trick where a web page renames
+    its own address to 127.0.0.1 and then reads or writes your board.
+  - Origin check on every write: only a page served by this board may write.
+  - Content-Type check on every write: it must be application/json. A web
+    page cannot send that to another site without the browser first asking
+    this server for permission, and this server never gives it.
+
+The board also runs the no-AI health check (engine/hygiene.py) when it
+starts and then every few minutes, so Alerts and the 45-minute return of
+hung cards work under plain `serve`, not only under `daemon`.
 """
 import json
+import socket
+import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -11,6 +28,19 @@ from urllib.parse import parse_qs, urlparse
 from . import cards as cards_mod
 from . import mirror
 from .rules import NotAllowed
+
+ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
+MAX_BODY = 1_000_000
+LAST_CHECK = {"ts": "", "open_alerts": None}
+
+
+def health_check_once(store, config, base_dir):
+    """Run the no-AI health check once and remember when."""
+    from . import hygiene
+    info = hygiene.run(store, config, base_dir)
+    LAST_CHECK["ts"] = info.get("ts") or time.strftime("%Y-%m-%d %H:%M:%S")
+    LAST_CHECK["open_alerts"] = info.get("open_alerts")
+    return info
 
 
 def make_handler(store, config, base_dir: Path):
@@ -25,8 +55,10 @@ def make_handler(store, config, base_dir: Path):
             "workspace": config.get("workspace", "ProjectForge"),
             "departments": config.get("departments", []),
             "human": config.get("human", "you"),
+            "orchestrator": config.get("orchestrator", "orchestrator"),
             "agents": config.get("agents", []),
             "managers": config.get("managers", []),
+            "outward_owners": config.get("outward_owners", []),
             "crm_vault": config.get("crm_vault", ""),
         }
 
@@ -39,15 +71,36 @@ def make_handler(store, config, base_dir: Path):
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Cache-Control",
                              "no-cache, no-store, must-revalidate")
+            self.send_header("X-Content-Type-Options", "nosniff")
             self.end_headers()
             self.wfile.write(data)
 
+        def _host_ok(self):
+            host = (self.headers.get("Host") or "").strip()
+            if host.startswith("["):
+                host = host[1:].split("]", 1)[0]
+            else:
+                host = host.rsplit(":", 1)[0]
+            return host.lower() in ALLOWED_HOSTS
+
+        def _origin_ok(self):
+            origin = self.headers.get("Origin")
+            if not origin:
+                return True  # our own tools, tests, and older browsers
+            o = urlparse(origin)
+            return (o.hostname or "").lower() in ALLOWED_HOSTS and \
+                o.port == self.server.server_address[1]
+
         def do_GET(self):
+            if not self._host_ok():
+                return self._send(403, {"error": "refused: wrong address"})
             url = urlparse(self.path)
             path, q = url.path, parse_qs(url.query)
             if path == "/api/state":
                 state = store.state()
                 state["config"] = public_config()
+                state["last_check"] = LAST_CHECK["ts"]
+                state["refused_today"] = store.refusals_today()
                 return self._send(200, state)
             if path == "/api/events":
                 return self._send(200, store.recent_events())
@@ -84,21 +137,34 @@ def make_handler(store, config, base_dir: Path):
             return self._send(404, {"error": "not found"})
 
         def do_POST(self):
-            length = int(self.headers.get("Content-Length", 0))
+            if not self._host_ok() or not self._origin_ok():
+                return self._send(403, {
+                    "error": "refused: writes are only accepted from the "
+                             "board's own page"})
+            ctype = (self.headers.get("Content-Type") or "").split(";")[0]
+            if ctype.strip().lower() != "application/json":
+                return self._send(415, {"error": "send application/json"})
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+            except ValueError:
+                length = 0
+            if length > MAX_BODY:
+                return self._send(413, {"error": "too large"})
             try:
                 p = json.loads(self.rfile.read(length) or b"{}")
             except (json.JSONDecodeError, UnicodeDecodeError):
                 return self._send(400, {"error": "bad json"})
+            if not isinstance(p, dict):
+                return self._send(400, {"error": "bad json"})
             path = urlparse(self.path).path
             actor = p.get("actor")
-            if path not in ("/api/federate", "/api/pass", "/api/handoff") \
-                    and not actor:
+            if path not in ("/api/pass", "/api/handoff") and not actor:
                 return self._send(400, {
                     "error": "actor is required - name yourself"})
             result = {"ok": True}
             try:
                 if path == "/api/federate":
-                    result = store.federate(p)
+                    result = store.federate(p, actor=actor)
                 elif path == "/api/intake":
                     leads = {d["id"]: d.get("lead", "")
                              for d in config.get("departments", [])}
@@ -198,15 +264,63 @@ def make_handler(store, config, base_dir: Path):
     return Handler
 
 
+class BoardServer(ThreadingHTTPServer):
+    """A server that owns its port outright.
+
+    Python's http.server sets SO_REUSEADDR. On Windows that lets a second
+    program bind the SAME port silently, so 2 boards answer on 3020 and your
+    browser reaches either one. Here the option is off, and on Windows the
+    port is claimed with SO_EXCLUSIVEADDRUSE, so a second board fails with
+    a clear error instead."""
+    allow_reuse_address = False
+    daemon_threads = True
+
+    def server_bind(self):
+        excl = getattr(socket, "SO_EXCLUSIVEADDRUSE", None)
+        if excl is not None:
+            self.socket.setsockopt(socket.SOL_SOCKET, excl, 1)
+        super().server_bind()
+
+
 def make_server(store, config, base_dir: Path, port=3020):
-    return ThreadingHTTPServer(("127.0.0.1", port),
-                               make_handler(store, config, base_dir))
+    return BoardServer(("127.0.0.1", port),
+                       make_handler(store, config, base_dir))
 
 
-def serve(store, config, base_dir: Path, port=3020):
-    httpd = make_server(store, config, base_dir, port)
-    print(f"ProjectForge board: http://127.0.0.1:{port}  (Ctrl+C to stop)")
+def start_health_loop(store, config, base_dir, every_min=None):
+    """Run the health check now, then every few minutes, in the background."""
+    every = every_min or (config.get("hygiene") or {}).get(
+        "check_every_min", 10) or 10
+
+    def loop():
+        while True:
+            try:
+                health_check_once(store, config, base_dir)
+            except Exception as e:  # noqa: BLE001 keep the board running
+                print("health check error:", e, flush=True)
+            time.sleep(max(int(every), 1) * 60)
+    t = threading.Thread(target=loop, daemon=True)
+    t.start()
+    return t
+
+
+def serve(store, config, base_dir: Path, port=3020, health_every_min=None):
+    try:
+        httpd = make_server(store, config, base_dir, port)
+    except OSError:
+        print(f"Port {port} is already in use - probably another copy of "
+              f"the board. Close its terminal window, or run this one on "
+              f"another port:  python forge.py serve --port {port + 1}",
+              flush=True)
+        return 6
+    start_health_loop(store, config, base_dir, health_every_min)
+    print(f"ProjectForge board: http://127.0.0.1:{port}", flush=True)
+    print("Leave this window open while you use the board. "
+          "Press Ctrl+C here to stop it.", flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         pass
+    finally:
+        httpd.server_close()
+    return 0

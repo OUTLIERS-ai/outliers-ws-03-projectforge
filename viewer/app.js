@@ -10,19 +10,48 @@ const STATUS_LABEL = {
   tracking: "Tracking",
 };
 
+/* Awaiting You is first: it is the only column that needs you. */
+const COLUMN_ORDER = ["awaiting_you", "backlog", "ready", "in_progress",
+  "blocked", "review", "done", "tracking"];
+
+const HOLD_LABEL = {
+  wip_cap: "too many in progress", no_owner: "needs an owner",
+  yours: "yours - not for an agent", out_of_scope: "outside its departments",
+  cap_exhausted: "daily limit reached",
+  unknown_agent: "not one of your agents - check the spelling",
+};
+
 let STATE = null;
 let activeDept = "all";
-let openTask = null; // task id of the open dossier, to refresh in place
+let openTask = null; // task id of the open card window, to refresh in place
 let viewMode = "board";
 let searchQ = "";
+let showRefused = false; // Activity shows only refusals
+let dirty = null;        // the card window has edits not yet saved
 
 function HUMAN() { return (STATE && STATE.config && STATE.config.human) || "you"; }
+function ORCH() { return (STATE && STATE.config && STATE.config.orchestrator) || "orchestrator"; }
 
 async function api(path, body) {
-  const r = await fetch(path, { method: "POST", body: JSON.stringify(body) });
+  const r = await fetch(path, {
+    method: "POST", body: JSON.stringify(body),
+    headers: { "Content-Type": "application/json" },
+  });
   const j = await r.json();
   if (!r.ok || j.error) toast(j.error || ("error " + r.status));
+  j._ok = r.ok && !j.error;
   return j;
+}
+
+/* true while the member is typing somewhere; the 10-second refresh waits */
+function busy() {
+  const a = document.activeElement;
+  if (a && a.id !== "search" &&
+      ["INPUT", "TEXTAREA", "SELECT"].includes(a.tagName)) return true;
+  if (document.querySelector(".add-card form")) return true;
+  if (!document.getElementById("modal-backdrop").classList.contains("hidden"))
+    return true;
+  return false;
 }
 
 function toast(msg) {
@@ -40,8 +69,13 @@ function toast(msg) {
 
 function crmLink(rel) {
   if (!rel) return "";
-  const vault = (STATE.config.crm_vault || "").replace(/[\/]+$/, "");
-  const full = vault ? vault + "/" + rel : rel;
+  const vault = (STATE.config.crm_vault || "").replace(/\\/g, "/")
+    .replace(/\/+$/, "");
+  if (!vault)
+    return `<div class="crm-link">CRM person: ${esc(rel)}
+      <span class="dimtext">(set crm_vault in config.json to make this a
+      link that opens the note in Obsidian)</span></div>`;
+  const full = vault + "/" + rel.replace(/\\/g, "/").replace(/^\/+/, "");
   return `<div class="crm-link">CRM person: <a href="obsidian://open?path=${
     encodeURIComponent(full)}">${esc(rel)}</a></div>`;
 }
@@ -52,6 +86,51 @@ async function load() {
   renderView();
   renderEvents();
   renderAlerts();
+}
+
+/* ---------- who may do what (shown on screen, from engine/rules.py) ---------- */
+function roleOf(name) {
+  const n = (name || "").toLowerCase();
+  if (!n) return "";
+  if (n === HUMAN().toLowerCase()) return "you";
+  if (n === ORCH().toLowerCase()) return "orchestrator";
+  if ((STATE.config.managers || []).map(x => x.toLowerCase()).includes(n))
+    return "manager";
+  return "worker";
+}
+function rulesHtml() {
+  const mgr = (STATE.config.managers || []);
+  return `
+    <h2>Who may do what</h2>
+    <p class="note">The board checks every change against these rules and
+      refuses the rest. Every refusal is shown in red in the Activity list,
+      with the agent's name.</p>
+    <table class="rules">
+      <tr><th>Who</th><th>May</th><th>May not</th></tr>
+      <tr><td><span class="role r-you">you</span> ${esc(HUMAN())}</td>
+        <td>anything: open, edit, drag, close cards</td><td>-</td></tr>
+      <tr><td><span class="role r-manager">manager</span>
+        ${mgr.length ? esc(mgr.join(", ")) : "<i>none chosen</i>"}</td>
+        <td>open new cards, edit card details, add reports</td>
+        <td>move a card between columns</td></tr>
+      <tr><td><span class="role r-worker">worker</span> every other agent</td>
+        <td>add a work report, a 5-field handover, a comment, an escalation</td>
+        <td>open a card, move a card, edit a card</td></tr>
+      <tr><td><span class="role r-orchestrator">orchestrator</span>
+        the /forge-run command</td>
+        <td>claim a Ready card, record the result and move the card; put a
+          card into Awaiting You</td>
+        <td>take a card out of Awaiting You</td></tr>
+    </table>
+    <p class="note">Nothing moves on its own. Type <code>/forge-run</code> in
+      Claude Code to hand Ready cards to their agents
+      (<code>/forge-run dry</code> previews and changes nothing).</p>
+    <p class="note">An example refusal: <code>refused: writer-bot is a worker
+      and may not move a card between columns.</code></p>`;
+}
+function openRules() {
+  document.getElementById("modal-body").innerHTML = rulesHtml();
+  showModal();
 }
 
 function setAlertsPanel(open) {
@@ -79,8 +158,12 @@ async function renderAlerts() {
   document.getElementById("alerts-reopen-count").textContent =
     alerts.length ? `(${alerts.length})` : "";
   const box = document.getElementById("alerts");
-  box.innerHTML = alerts.length ? "" :
-    `<div class="dimtext">All clear.</div>`;
+  const last = STATE && STATE.last_check;
+  document.getElementById("alerts-last").textContent =
+    last ? `last check ${last.slice(11, 16)}` : "not checked yet";
+  box.innerHTML = alerts.length ? "" : (last
+    ? `<div class="dimtext">All clear at the last check.</div>`
+    : `<div class="dimtext">The health check has not run yet.</div>`);
   for (const a of alerts) {
     const el = document.createElement("div");
     el.className = `alert-item ${a.level}`;
@@ -101,6 +184,7 @@ async function renderAlerts() {
   }
 }
 function renderView() {
+  document.getElementById("board").dataset.view = viewMode;
   if (viewMode === "agents") renderAgents();
   else if (viewMode === "queue") renderQueue();
   else renderBoard();
@@ -126,12 +210,32 @@ function confBadge(t) {
     <span class="conf-bar"><span style="width:${n}%"></span></span>
     <span class="conf-n">${n}%</span></div>`;
 }
-function agentList() {
+/* the owner picker: you, then your real agents. A name typed by hand
+   elsewhere that is not one of them is shown with a warning. */
+function knownAgents() {
   const set = new Set(STATE.config.departments.map(d => d.lead).filter(Boolean));
   (STATE.config.agents || []).forEach(a => set.add(a));
-  set.add(HUMAN());
-  STATE.tasks.forEach(t => t.assignee_agent && set.add(t.assignee_agent));
+  (STATE.config.managers || []).forEach(a => set.add(a));
+  (STATE.config.outward_owners || []).forEach(a => set.add(a));
   return [...set].sort();
+}
+function isKnownOwner(name) {
+  if (!name) return true;
+  const ks = knownAgents();
+  if (!ks.length) return true; // no agent list: nothing to check against
+  return name === HUMAN() || ks.includes(name);
+}
+function ownerOptions(current) {
+  const names = [HUMAN(), ...knownAgents().filter(a => a !== HUMAN())];
+  if (!knownAgents().length)
+    STATE.tasks.forEach(t => t.assignee_agent && !names.includes(t.assignee_agent)
+      && names.push(t.assignee_agent));
+  let html = names.map(a => `<option value="${esc(a)}" ${a === current ? "selected" : ""}>${
+    esc(a)}${a === HUMAN() && a.toLowerCase() !== "you" ? " (you)" : ""}${
+    roleOf(a) === "manager" ? " - manager" : ""}</option>`).join("");
+  if (current && !names.includes(current))
+    html += `<option value="${esc(current)}" selected>${esc(current)} - not one of your agents</option>`;
+  return html;
 }
 function allTags() {
   const set = new Set();
@@ -164,16 +268,29 @@ function ago(ts) {
   if (d < 1) return `${Math.round(d * 24)}h ago`;
   return `${Math.floor(d)}d ago`;
 }
+const FIELD_LABEL = { assignee_agent: "owner", context_ref: "link or file",
+  crm_person: "CRM person", project_id: "project" };
+function lab(s) { return STATUS_LABEL[s] || s; }
 function evText(ev) {
-  const d = JSON.parse(ev.detail || "{}");
+  let d = {};
+  try { d = JSON.parse(ev.detail || "{}"); } catch { d = {}; }
   switch (ev.action) {
-    case "moved": return `<b>${esc(ev.actor)}</b> moved ${esc(d.from)} → ${esc(d.to)}`;
+    case "moved": return `<b>${esc(ev.actor)}</b> moved ${esc(lab(d.from))} → ${esc(lab(d.to))}`;
     case "handoff": return `<b>${esc(d.from)}</b> handed to <b>${esc(d.to)}</b> — ${esc(d.summary || "")}`;
     case "created": return `<b>${esc(ev.actor)}</b> created this`;
     case "comment": return `<b>${esc(ev.actor)}</b>: ${esc(d.text || "")}`;
     case "tagged": return `<b>${esc(ev.actor)}</b> set tags: ${esc((d.tags || []).join(", ") || "none")}`;
-    case "pass": return `<b>${esc(ev.actor)}</b> logged a pass (${esc(d.result)}) — ${esc(d.summary || "")}`;
-    case "updated": return `<b>${esc(ev.actor)}</b> edited ${esc((d.fields || []).join(", "))}`;
+    case "pass": return `<b>${esc(ev.actor)}</b> logged a work report (${esc(d.result)}) — ${esc(d.summary || "")}`;
+    case "updated": return `<b>${esc(ev.actor)}</b> edited ${esc((d.fields || []).map(f => FIELD_LABEL[f] || f).join(", "))}`;
+    case "dispatched": return `<b>${esc(ev.actor)}</b> handed this to <b>${esc(d.agent)}</b>`;
+    case "refused": return `<span class="refused-text">REFUSED</span> <b>${esc(ev.actor)}</b>: ${esc(d.message || "")}`;
+    case "escalation": return `<span class="refused-text">NEEDS A PERSON</span> <b>${esc(ev.actor)}</b>: ${esc(d.text || "")}`;
+    case "checklist": return `<b>${esc(ev.actor)}</b> updated the checklist (${esc(d.done)}/${esc(d.total)} done)`;
+    case "auto-assigned": return `<b>${esc(ev.actor)}</b> gave it to <b>${esc(d.agent)}</b>`;
+    case "federated": return `<b>${esc(ev.actor)}</b> sent this in from ${esc(d.source_app || "another program")}`;
+    case "archived": return `<b>${esc(ev.actor)}</b> archived this`;
+    case "auto-queued": return `<b>${esc(ev.actor)}</b> moved Backlog → Ready`;
+    case "reaped": return `<b>${esc(ev.actor)}</b> sent it back to Ready: no report within ${esc(d.ttl_min)} minutes`;
     default: return `<b>${esc(ev.actor)}</b> ${esc(ev.action)}`;
   }
 }
@@ -187,39 +304,71 @@ function renderHeader() {
     STATE.projects.filter(p => p.status === "active").length;
   document.getElementById("stat-open").textContent = open.length;
   document.getElementById("stat-waiting").textContent =
-    open.filter(t => t.status === "awaiting_you").length;
+    open.filter(t => t.status === "awaiting_you" && !t.archived).length;
+  document.getElementById("stat-refused").textContent =
+    STATE.refused_today ?? 0;
 
   const pills = document.getElementById("dept-pills");
   pills.innerHTML = "";
   const mk = (id, name, color) => {
-    const el = document.createElement("div");
+    const el = document.createElement("button");
     el.className = "pill" + (activeDept === id ? " active" : "");
     el.style.setProperty("--pc", color);
     el.textContent = name;
-    el.onclick = () => { activeDept = id; renderHeader(); renderBoard(); };
+    el.onclick = () => { activeDept = id; renderHeader(); renderView(); };
     pills.appendChild(el);
   };
   mk("all", "All", "#ff3c00");
   STATE.config.departments.forEach(d => mk(d.id, d.name, d.color));
+}
 
-  const np = document.createElement("div");
-  np.className = "pill new";
-  np.textContent = "+ Project";
-  np.onclick = openNewProject;
-  pills.appendChild(np);
+function jumpToAwaiting() {
+  if (viewMode !== "board") setView("board");
+  const col = document.querySelector('.col[data-status="awaiting_you"]');
+  if (!col) return;
+  col.scrollIntoView({ behavior: "smooth", inline: "start", block: "nearest" });
+  col.classList.add("flash");
+  setTimeout(() => col.classList.remove("flash"), 1400);
 }
 
 /* ---------- board ---------- */
+function firstRunPanel() {
+  const live = STATE.tasks.filter(t => !t.archived).length;
+  if (live) return null;
+  const el = document.createElement("div");
+  el.className = "first-run";
+  el.innerHTML = `
+    <h2>Your board is empty. 3 steps to your first card:</h2>
+    <ol>
+      <li><b>Make a project.</b> Every card lives inside one.
+        <button id="fr-project">+ Project</button></li>
+      <li><b>Add a card</b> with "+ Add card" under Ready, and pick the agent
+        who owns it.</li>
+      <li><b>In Claude Code, type <code>/forge-run dry</code></b> to see who
+        would get it. Nothing changes until you run <code>/forge-run</code>.</li>
+    </ol>
+    <p class="dimtext">Want to look round a full board first? In a terminal in
+      this folder: <code>python tools/demo_board.py --out demo --serve</code>,
+      then open http://127.0.0.1:3029.</p>`;
+  el.querySelector("#fr-project").onclick = openNewProject;
+  return el;
+}
+
 function renderBoard() {
   const board = document.getElementById("board");
   board.innerHTML = "";
+  const fr = firstRunPanel();
+  if (fr) board.appendChild(fr);
 
-  for (const status of STATE.statuses) {
-    const col = document.createElement("div");
-    col.className = "col";
-    col.dataset.status = status;
-
+  for (const status of COLUMN_ORDER.filter(s => STATE.statuses.includes(s))) {
     const tasks = STATE.tasks.filter(t => t.status === status && matches(t));
+    // Tracking only matters once another program sends facts to it
+    if (status === "tracking" &&
+        !STATE.tasks.some(t => t.status === "tracking" && !t.archived))
+      continue;
+    const col = document.createElement("div");
+    col.className = "col" + (status === "awaiting_you" ? " yours" : "");
+    col.dataset.status = status;
 
     col.innerHTML = `<div class="col-head"><h3>${STATUS_LABEL[status]}</h3>
       <span class="count">${tasks.length}</span></div>`;
@@ -231,10 +380,15 @@ function renderBoard() {
     zone.ondrop = async e => {
       e.preventDefault();
       zone.classList.remove("drag-over");
-      await api("/api/task/move", {
-        task_id: e.dataTransfer.getData("text/plain"),
-        status, actor: HUMAN(),
-      });
+      const id = e.dataTransfer.getData("text/plain");
+      const t = STATE.tasks.find(x => x.id === id);
+      if (t && t.status === "in_progress" && status === "done" &&
+          !confirm(`${t.assignee_agent || "An agent"} is still working on ` +
+                   `this. Close it anyway?`)) return;
+      const r = await api("/api/task/move", { task_id: id, status, actor: HUMAN() });
+      if (r._ok && t && t.status === "in_progress" && status === "done")
+        await api("/api/task/comment", { task_id: id, actor: HUMAN(),
+          text: "Closed by hand while the agent was still working." });
       load();
     };
 
@@ -277,23 +431,21 @@ function cardEl(t) {
         <span class="bar"><span class="fill" style="width:${
           Math.round(100 * clDone / cl.length)}%"></span></span></span>` : ""}
     </div>` : ""}
-    <div class="proj" title="Edit project">${esc(proj.title || "")}</div>
+    <div class="proj">${esc(proj.title || "")}</div>
     <div class="foot">
       <span class="agent ${t.assignee_agent ? "" : "none"}">
         ${esc(t.assignee_agent || "unassigned")}</span>
       <span class="src">${t.pass_count ? `⟳${t.pass_count} · ` : ""}${esc(ago(t.updated))}</span>
     </div>`;
+  card.tabIndex = 0;
+  card.setAttribute("role", "button");
   card.ondragstart = e => {
     e.dataTransfer.setData("text/plain", t.id);
     card.classList.add("dragging");
   };
   card.ondragend = () => card.classList.remove("dragging");
   card.onclick = () => openDetail(t.id);
-  const projLine = card.querySelector(".proj");
-  if (projLine && proj.id) projLine.onclick = e => {
-    e.stopPropagation();
-    openProject(proj.id);
-  };
+  card.onkeydown = e => { if (e.key === "Enter") openDetail(t.id); };
   return card;
 }
 
@@ -303,19 +455,38 @@ function addCardForm(anchor, status) {
     (activeDept === "all" || p.department === activeDept));
   anchor.innerHTML = "";
   const f = document.createElement("form");
+  const noProject = !projs.length;
   f.innerHTML = `
     <input name="title" placeholder="Card title…" autocomplete="off" required>
-    <select name="project">${projs.map(p =>
-      `<option value="${esc(p.id)}">${esc(p.title)}</option>`).join("")}</select>
+    ${noProject ? `<div class="form-hint">Cards live inside a project. Name
+        your first project:</div>
+      <input name="newproj" placeholder="Project name, e.g. Content week 39"
+        autocomplete="off" required>
+      <select name="dept">${STATE.config.departments.map(d =>
+        `<option value="${esc(d.id)}" ${d.id === activeDept ? "selected" : ""}>${
+        esc(d.name)}</option>`).join("")}</select>`
+    : `<select name="project">${projs.map(p =>
+      `<option value="${esc(p.id)}">${esc(p.title)}</option>`).join("")}</select>`}
+    <select name="agent" title="Who owns this card">
+      <option value="">no owner yet</option>
+      ${ownerOptions("")}</select>
     <div class="form-row">
       <button type="submit">Add</button>
       <button type="button" class="ghost" data-x>Cancel</button>
     </div>`;
   f.onsubmit = async e => {
     e.preventDefault();
+    let pid = noProject ? "" : f.project.value;
+    if (noProject) {
+      const r = await api("/api/project/add", {
+        title: f.newproj.value.trim(), department: f.dept.value,
+        actor: HUMAN() });
+      if (!r._ok) return;
+      pid = r.id;
+    }
     await api("/api/task/add", {
-      project_id: f.project.value, title: f.title.value.trim(),
-      status, actor: HUMAN(),
+      project_id: pid, title: f.title.value.trim(),
+      assignee_agent: f.agent.value, status, actor: HUMAN(),
     });
     load();
   };
@@ -341,11 +512,12 @@ function openNewProject() {
   document.getElementById("np-form").onsubmit = async e => {
     e.preventDefault();
     const f = e.target;
-    await api("/api/project/add", {
+    const r = await api("/api/project/add", {
       title: f.title.value.trim(), department: f.department.value,
       summary: f.summary.value.trim(), actor: HUMAN(),
     });
-    closeModal();
+    if (!r._ok) return;
+    closeModal(true);
     load();
   };
   showModal();
@@ -411,36 +583,64 @@ async function renderAgents() {
   const ag = await (await fetch("/api/agents")).json();
   const board = document.getElementById("board");
   board.innerHTML = "";
-  const names = Object.keys(ag).sort((a, b) =>
-    ag[b].open.length - ag[a].open.length || a.localeCompare(b));
+  // every configured agent gets a column, managers first; you last
+  const order = { manager: 0, worker: 1, orchestrator: 2, you: 3 };
+  const names = [...new Set([...knownAgents(), ...Object.keys(ag)])]
+    .sort((a, b) => order[roleOf(a)] - order[roleOf(b)] ||
+      ((ag[b] || {}).open || []).length - ((ag[a] || {}).open || []).length ||
+      a.localeCompare(b));
+  const head = document.createElement("div");
+  head.className = "agents-key";
+  head.innerHTML = `<b>Managers</b> open cards. <b>Workers</b> add reports.
+    Only <b>/forge-run</b> and <b>you</b> move cards.
+    <a href="#" id="ak-rules">Who may do what</a>
+    <span class="key-dots">Last 8 results, newest first:
+      <span class="s-dot r-completed"></span> completed
+      <span class="s-dot r-progressed"></span> progressed
+      <span class="s-dot r-needs-review"></span> needs review
+      <span class="s-dot r-blocked"></span> blocked
+      <span class="s-dot r-failed"></span> failed</span>`;
+  head.querySelector("#ak-rules").onclick = e => { e.preventDefault(); openRules(); };
+  board.appendChild(head);
   if (!names.length) {
-    board.innerHTML = `<div class="dimtext" style="padding:30px">
-      No agent activity yet.</div>`;
+    const d = document.createElement("div");
+    d.className = "dimtext"; d.style.padding = "30px";
+    d.textContent = "No agents yet. Re-run install.py after adding agent files.";
+    board.appendChild(d);
     return;
   }
+  const row = document.createElement("div");
+  row.className = "agents-row";
+  board.appendChild(row);
   for (const name of names) {
-    const info = ag[name];
+    const info = ag[name] || { open: [], results: [], last_pass: null };
+    const openCards = info.open.filter(o => {
+      const t = STATE.tasks.find(x => x.id === o.id);
+      return !t || matches(t);
+    });
+    const role = roleOf(name);
     const col = document.createElement("div");
     col.className = "col agent-col";
     col.innerHTML = `
       <div class="col-head">
         <h3>${esc(name)}</h3>
-        <span class="count">${info.open.length}</span>
+        <span class="count">${openCards.length}</span>
       </div>
+      <div class="role-line"><span class="role r-${role}">${role}</span></div>
       <div class="agent-meta">
-        ${info.results.length ? `<div class="streak" title="recent pass results, newest first">
-          ${info.results.map(r => `<span class="s-dot r-${esc(r)}"></span>`).join("")}
+        ${info.results.length ? `<div class="streak" title="last 8 work report results, newest first">
+          ${info.results.map(r => `<span class="s-dot r-${esc(r)}" title="${esc(r)}"></span>`).join("")}
         </div>` : ""}
         ${info.last_pass ? `<div class="lastpass">
           <span class="badge r-${esc(info.last_pass.result)}">${esc(info.last_pass.result)}</span>
           <span class="ts">${esc(ago(info.last_pass.ts))}</span>
           <div class="lp-sum">${esc(info.last_pass.summary)}</div>
           <div class="lp-task">on: ${esc(info.last_pass.task_title || info.last_pass.task_id)}</div>
-        </div>` : `<div class="dimtext">No passes logged yet.</div>`}
+        </div>` : `<div class="dimtext">No work reports yet.</div>`}
       </div>
       <div class="col-cards"></div>`;
     const zone = col.querySelector(".col-cards");
-    for (const o of info.open) {
+    for (const o of openCards) {
       const mini = document.createElement("div");
       mini.className = "card mini-card";
       const dc = dueClass(o.due, o.status);
@@ -454,7 +654,7 @@ async function renderAgents() {
       mini.onclick = () => openDetail(o.id);
       zone.appendChild(mini);
     }
-    board.appendChild(col);
+    row.appendChild(col);
   }
 }
 
@@ -471,38 +671,43 @@ async function renderQueue() {
   wrap.innerHTML = `
     <div class="queue-head">
       <div>
-        <h2 class="q-title">Dispatch queue</h2>
-        <div class="q-sub">ranked ready cards an owner agent can start now
-          — priority → due → age</div>
+        <h2 class="q-title">Ready for agents</h2>
+        <div class="q-sub">The Ready cards in the order /forge-run would
+          hand them out: priority, then due date, then oldest first.</div>
       </div>
       <div class="q-wip ${w.at_cap ? "at-cap" : ""}">
         <div class="q-wip-num">${w.in_progress ?? "–"}${cap}</div>
-        <label>in progress${w.at_cap ? " · AT CAP" : ""}</label>
+        <label>in progress${w.at_cap ? " · limit reached" : ""}</label>
       </div>
       <div class="q-wip">
         <div class="q-wip-num">${q.ready_count ?? 0}</div>
         <label>ready</label>
       </div>
     </div>
+    <div class="q-explain">Nothing here moves on its own. Type
+      <code>/forge-run</code> in Claude Code to hand these cards to their
+      agents (<code>/forge-run dry</code> only previews). Only /forge-run and
+      you move cards; agents can only add reports.
+      <a href="#" id="q-rules">Who may do what</a></div>
     <div class="queue-list"></div>`;
+  wrap.querySelector("#q-rules").onclick = e => { e.preventDefault(); openRules(); };
   const list = wrap.querySelector(".queue-list");
 
-  if (!q.next || !q.next.length) {
+  const items = (q.next || []).filter(n => {
+    const t = STATE.tasks.find(x => x.id === n.task_id);
+    return !t || matches(t);
+  });
+  if (!items.length) {
     list.innerHTML = `<div class="dimtext" style="padding:24px">
-      Nothing ready to dispatch. Cards move to <b>Ready</b> when queued for an
-      agent.</div>`;
+      Nothing in Ready. A card reaches Ready when you drag it there or add it
+      there, or when /forge-run picks up a Backlog card that has an owner.</div>`;
   }
   let rank = 0;
-  for (const n of (q.next || [])) {
+  for (const n of items) {
     rank++;
     const flag = n.dispatchable
-      ? `<span class="q-flag go">▶ dispatchable</span>`
-      : `<span class="q-flag hold">⏸ ${esc(
-          n.hold_reason === "wip_cap" ? "WIP at cap" :
-          n.hold_reason === "no_owner" ? "needs an owner" :
-          n.hold_reason === "yours" ? "yours - not for an agent" :
-          n.hold_reason === "out_of_scope" ? "outside its departments" :
-          n.hold_reason === "cap_exhausted" ? "daily limit reached" : "hold")}</span>`;
+      ? `<span class="q-flag go">▶ can start now</span>`
+      : `<span class="q-flag hold">⏸ ${esc(HOLD_LABEL[n.hold_reason] || "waiting")}</span>`;
     const dc = dueClass(n.due, "ready");
     const item = document.createElement("div");
     item.className = "q-item" + (n.dispatchable ? " is-go" : "");
@@ -535,14 +740,26 @@ async function renderQueue() {
 
 /* ---------- activity feed ---------- */
 async function renderEvents() {
-  const events = await (await fetch("/api/events")).json();
+  let events = await (await fetch("/api/events")).json();
   const box = document.getElementById("events");
   box.innerHTML = "";
+  const btn = document.getElementById("refused-filter");
+  btn.textContent = showRefused ? "show everything" : "show refusals only";
+  if (showRefused) events = events.filter(e => e.action === "refused");
+  if (!events.length)
+    box.innerHTML = `<div class="dimtext">${showRefused
+      ? "No refusals in the last 40 changes." : "Nothing has happened yet."}</div>`;
   for (const ev of events) {
     const el = document.createElement("div");
-    el.className = "ev";
-    el.innerHTML = `<div class="dot ${ev.action}"></div>
+    el.className = "ev" + (ev.action === "refused" || ev.action === "escalation"
+      ? " ev-bad" : "");
+    el.innerHTML = `<div class="dot ev-${esc(ev.action)}"></div>
       <div class="body">${evText(ev)}<div class="ts">${esc(ev.ts)}</div></div>`;
+    if (ev.entity_type === "task" && ev.entity_id && ev.entity_id !== "-" &&
+        STATE.tasks.some(t => t.id === ev.entity_id)) {
+      el.classList.add("clickable");
+      el.onclick = () => openDetail(ev.entity_id);
+    }
     box.appendChild(el);
   }
 }
@@ -592,20 +809,21 @@ async function openDetail(taskId) {
   body.innerHTML = `
     <input id="d-title" class="title-edit" value="${esc(t.title)}">
     <div class="mono">${esc(t.id)} · ${STATUS_LABEL[t.status]} ·
-      ${esc(proj.title || "?")} · in lane ${esc(ago(laneSince))}</div>
+      <a href="#" id="d-projlink" title="Open the project">${esc(proj.title || "?")}</a>
+      · in this column ${esc(ago(laneSince))}</div>
 
     ${crmLink(t.crm_person)}
     ${flags.length ? `<div class="flagbox">${flags.map(f =>
       `<div>⚠ ${esc(f)}</div>`).join("")}</div>` : ""}
 
     <div class="grid2">
-      <label>Agent
-        <input id="d-agent" value="${esc(t.assignee_agent)}" list="agents"
-          placeholder="unassigned">
-        <datalist id="agents">${agentList().map(a =>
-          `<option value="${esc(a)}">`).join("")}</datalist>
+      <label>Owner
+        <select id="d-agent"><option value="">no owner</option>${
+          ownerOptions(t.assignee_agent)}</select>
+        ${isKnownOwner(t.assignee_agent) ? "" : `<span class="warn-text">Not
+          one of your agents: /forge-run will not hand this card out.</span>`}
       </label>
-      <label>Context ref
+      <label>Link or file
         <input id="d-ctx" value="${esc(t.context_ref)}"
           placeholder="path / url / inbox entry">
       </label>
@@ -627,7 +845,7 @@ async function openDetail(taskId) {
           `<option value="${esc(p.id)}" ${p.id === t.project_id ? "selected" : ""}>
            ${esc(p.title)}</option>`).join("")}</select>
       </label>
-      <label>Lane
+      <label>Column
         <select id="d-lane">${STATE.statuses.map(s =>
           `<option value="${s}" ${s === t.status ? "selected" : ""}>${STATUS_LABEL[s]}</option>`).join("")}
         </select>
@@ -728,35 +946,79 @@ async function openDetail(taskId) {
       `<div class="tl"><span class="ts">${esc(ev.ts)}</span>
        <span>${evText(ev)}</span></div>`).join("")}</div>`;
 
-  /* wiring */
-  document.getElementById("d-save").onclick = async () => {
-    await api("/api/task/update", {
-      task_id: t.id, actor: HUMAN(),
-      title: document.getElementById("d-title").value.trim(),
-      assignee_agent: document.getElementById("d-agent").value.trim(),
-      context_ref: document.getElementById("d-ctx").value.trim(),
-      crm_person: document.getElementById("d-crm").value.trim(),
-      notes: document.getElementById("d-notes").value,
-      due: document.getElementById("d-due").value,
-      priority: document.getElementById("d-prio").value,
-      project_id: document.getElementById("d-proj").value,
-    });
+  /* wiring: the top fields are saved by "Save changes", and also before
+     any tag, checklist or comment change redraws the window, so nothing
+     typed is lost. Escape or a click outside asks first. */
+  const FIELDS = { title: "d-title", assignee_agent: "d-agent",
+    context_ref: "d-ctx", crm_person: "d-crm", notes: "d-notes",
+    due: "d-due", priority: "d-prio", project_id: "d-proj" };
+  const val = id => {
+    const el = document.getElementById(id);
+    return el.tagName === "TEXTAREA" ? el.value : el.value.trim();
+  };
+  const orig = {};
+  for (const [k, id] of Object.entries(FIELDS)) orig[k] = val(id);
+  orig.lane = t.status;
+  dirty = null;
+  const changed = () => {
+    const out = {};
+    for (const [k, id] of Object.entries(FIELDS))
+      if (val(id) !== orig[k]) out[k] = val(id);
+    return out;
+  };
+  const markDirty = () => {
+    const c = changed();
+    const laneChanged = document.getElementById("d-lane").value !== orig.lane;
+    dirty = (Object.keys(c).length || laneChanged) ? c : null;
+    document.getElementById("d-saved").textContent = dirty ? "unsaved changes" : "";
+  };
+  [...Object.values(FIELDS), "d-lane"].forEach(id => {
+    const el = document.getElementById(id);
+    el.addEventListener("input", markDirty);
+    el.addEventListener("change", markDirty);
+  });
+  const saveTop = async () => {
+    const c = changed();
+    if ("title" in c && !c.title) {
+      toast("A card needs a title - the old title is kept.");
+      document.getElementById("d-title").value = orig.title;
+      delete c.title;
+    }
+    let ok = true;
+    if (Object.keys(c).length) {
+      const r = await api("/api/task/update", { task_id: t.id, actor: HUMAN(), ...c });
+      ok = r._ok;
+    }
     const lane = document.getElementById("d-lane").value;
-    if (lane !== t.status)
-      await api("/api/task/move", { task_id: t.id, status: lane, actor: HUMAN() });
+    if (ok && lane !== t.status) {
+      const r = await api("/api/task/move", { task_id: t.id, status: lane, actor: HUMAN() });
+      ok = r._ok;
+    }
+    if (ok) dirty = null;
+    return ok;
+  };
+  document.getElementById("d-save").onclick = async () => {
+    if (!(await saveTop())) return;
     document.getElementById("d-saved").textContent = "saved ✓";
     setTimeout(() => openDetail(t.id), 350);
     load();
   };
+  document.getElementById("d-projlink").onclick = e => {
+    e.preventDefault();
+    if (!proj.id) return;
+    closeModal();
+    if (!openTask) openProject(proj.id);
+  };
   document.getElementById("d-archive").onclick = async () => {
     await api("/api/task/archive", {
       task_id: t.id, archived: !t.archived, actor: HUMAN() });
-    closeModal();
+    closeModal(true);
     load();
   };
   /* checklist wiring */
   const clItems = checklistOf(t);
   const saveChecklist = async items => {
+    if (dirty && !(await saveTop())) return;
     await api("/api/task/checklist", { task_id: t.id, items, actor: HUMAN() });
     openDetail(t.id);
     load();
@@ -775,6 +1037,7 @@ async function openDetail(taskId) {
       saveChecklist([...clItems, { text: newCheck.value.trim(), done: false }]);
   };
   const setTags = async next => {
+    if (dirty && !(await saveTop())) return;
     await api("/api/task/tags", { task_id: t.id, tags: next, actor: HUMAN() });
     openDetail(t.id);
     load();
@@ -789,6 +1052,7 @@ async function openDetail(taskId) {
   document.getElementById("d-comment-btn").onclick = async () => {
     const text = document.getElementById("d-comment").value.trim();
     if (!text) return;
+    if (dirty && !(await saveTop())) return;
     await api("/api/task/comment", { task_id: t.id, text, actor: HUMAN() });
     openDetail(t.id);
     load();
@@ -800,11 +1064,15 @@ async function openDetail(taskId) {
 function showModal() {
   document.getElementById("modal-backdrop").classList.remove("hidden");
 }
-function closeModal() {
+function closeModal(force) {
+  if (dirty && force !== true &&
+      !confirm("You have changes on this card that are not saved. Discard them?"))
+    return;
+  dirty = null;
   openTask = null;
   document.getElementById("modal-backdrop").classList.add("hidden");
 }
-document.getElementById("modal-close").onclick = closeModal;
+document.getElementById("modal-close").onclick = () => closeModal();
 document.getElementById("modal-backdrop").onclick = e => {
   if (e.target.id === "modal-backdrop") closeModal();
 };
@@ -815,13 +1083,24 @@ document.addEventListener("keydown", e => {
 /* ---------- header controls ---------- */
 const searchBox = document.getElementById("search");
 searchBox.oninput = () => { searchQ = searchBox.value.trim(); renderView(); };
+function setView(v) {
+  viewMode = v;
+  document.querySelectorAll(".toggle button").forEach(x =>
+    x.classList.toggle("active", x.dataset.v === v));
+  renderView();
+}
 document.querySelectorAll(".toggle button").forEach(b =>
-  b.onclick = () => {
-    viewMode = b.dataset.v;
-    document.querySelectorAll(".toggle button").forEach(x =>
-      x.classList.toggle("active", x === b));
-    renderView();
-  });
+  b.onclick = () => setView(b.dataset.v));
+document.getElementById("new-project").onclick = openNewProject;
+document.getElementById("help").onclick = openRules;
+document.getElementById("stat-waiting-btn").onclick = jumpToAwaiting;
+document.getElementById("stat-refused-btn").onclick = () => {
+  showRefused = true; renderEvents();
+  document.getElementById("activity").scrollIntoView({ behavior: "smooth" });
+};
+document.getElementById("refused-filter").onclick = () => {
+  showRefused = !showRefused; renderEvents();
+};
 
 /* ---------- theme switcher (persisted) ---------- */
 const THEMES = ["command-deck", "synthwave", "terminal", "paper", "minimal"];
@@ -841,4 +1120,6 @@ function applyTheme(t) {
 })();
 
 load();
-setInterval(() => { if (!openTask) load(); }, 10000);
+/* refresh every 10 seconds, but never while you are typing or a window
+   is open: a redraw would throw away what you typed */
+setInterval(() => { if (!busy()) load(); }, 10000);

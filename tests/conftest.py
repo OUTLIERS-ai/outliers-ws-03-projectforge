@@ -21,7 +21,8 @@ WORKER = "writer-bot"
 @pytest.fixture
 def roles():
     return Roles(human=HUMAN, orchestrator=ORCH, managers=[MANAGER],
-                 outward_owners=["social-poster"])
+                 outward_owners=["social-poster"],
+                 federate_sources=["crm-today", "tracker"])
 
 
 @pytest.fixture

@@ -16,6 +16,7 @@ import argparse
 import json
 import os
 import platform
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -58,6 +59,11 @@ def plan(every):
                 "remove": ["schtasks", "/Delete", "/TN", TASK, "/F"]}
     if system == "Darwin":
         plist = Path.home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
+        # launchd starts jobs with a bare PATH, so name Claude's folder
+        claude = shutil.which("claude") or ""
+        dirs = [str(Path(claude).parent)] if claude else []
+        dirs += ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
+        path_env = ":".join(dict.fromkeys(dirs))
         body = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
@@ -68,6 +74,9 @@ def plan(every):
   </array>
   <key>StartInterval</key><integer>{every * 60}</integer>
   <key>WorkingDirectory</key><string>{BASE}</string>
+  <key>EnvironmentVariables</key><dict>
+    <key>PATH</key><string>{path_env}</string>
+  </dict>
 </dict></plist>
 """
         return {"system": system, "files": {str(plist): body},
@@ -87,6 +96,11 @@ def set_installed(flag, every):
     sch = data.setdefault("schedule", {})
     sch["installed"] = flag
     sch["every_min"] = every
+    if flag:
+        # remember where Claude is: a schedule may start with a bare PATH
+        claude = shutil.which("claude")
+        if claude:
+            sch["claude_path"] = claude
     atomic_write(p, json.dumps(data, indent=2) + "\n")
 
 

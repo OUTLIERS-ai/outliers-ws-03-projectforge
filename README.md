@@ -38,8 +38,11 @@ leaves your board data alone.
 
 | Command | What it does |
 |---|---|
-| `python forge.py serve` | Opens the board at http://127.0.0.1:3020 |
+| `python forge.py serve` | Opens the board at http://127.0.0.1:3020 (leave the window open; Ctrl+C stops it) |
 | `python forge.py list` | Open cards in the terminal |
+| `python forge.py projects` | Every project and its id |
+| `python forge.py add-project "Content week 39" --dept content --actor you` | A new project; prints its id |
+| `python forge.py add-task <project-id> "Draft 3 posts" --status ready --agent writer-bot --actor you` | A new card |
 | `python forge.py waiting` | How many cards a `/forge-run` could hand out now |
 | `/forge-run dry` (in Claude Code) | A preview of a pass; changes nothing |
 | `/forge-run` | Hands ready cards to their owner agents and records the results |
@@ -48,14 +51,36 @@ leaves your board data alone.
 | `python tools/schedule.py --print` | Shows the optional schedule; off by default |
 | `python tools/demo_board.py --out demo --serve` | A separate demo board of made-up work |
 
-Agents use `forge_agent.py` (installed for them):
+Every `forge.py` command that changes the board needs `--actor <your name>`
+(the name from `human` in config.json). There is no default, so an agent that
+runs forge.py without naming itself is stopped instead of counting as you.
+
+Agents use `forge_agent.py`, which the installer puts in
+`<your .claude folder>/projectforge/` (on Windows
+`%USERPROFILE%\.claude\projectforge\forge_agent.py`):
 
 ```
+python forge_agent.py mywork <agent>
 python forge_agent.py card <id>
 python forge_agent.py pass --card <id> --agent <name> --summary "..." --outputs a.md --result needs-review --next "..."
 python forge_agent.py handoff --card <id> --from <me> --to <next> --done "..." --decisions "... because ..." --state "..." --next-first "..." --warnings "none"
+python forge_agent.py escalate --card <id> --agent <name> --note "what I need"
 python forge_agent.py open --agent <manager> --dept content --project "..." --title "..." --assignee <agent>
 ```
+
+## Safety
+
+- The board listens on 127.0.0.1 only, and refuses any write that does not
+  come from its own page (Host, Origin and Content-Type checks), so a website
+  you visit cannot add or move cards.
+- Only programs named in `federate_sources` in config.json may push cards in.
+- Awaiting You is yours: the orchestrator may put a card in it, never take one out.
+- A card in Ready can be claimed once; a second `/forge-run` cannot take it.
+- A second copy of the board on the same port fails with a clear message.
+- The optional unattended run (`tools/run_if_ready.py`) starts Claude in
+  "dontAsk" mode with exactly the board commands it needs allowed; anything
+  else, unless you already allowed it in your own Claude Code settings, is
+  refused. The list is in `allowed_tools()` in that file.
 
 ## Needs
 

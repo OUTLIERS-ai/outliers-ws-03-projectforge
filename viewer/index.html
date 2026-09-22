@@ -5,7 +5,7 @@
 <title>ProjectForge</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="favicon.png">
-<link rel="stylesheet" href="style.css?v=ws03">
+<link rel="stylesheet" href="style.css?v=ws03b">
 </head>
 <body>
 <header>
@@ -13,9 +13,10 @@
     <div class="logo">⬢</div>
     <div>
       <h1>ProjectForge</h1>
-      <div class="workspace" id="workspace"></div>
+      <div class="workspace" id="workspace" title="Change this name: workspace in config.json"></div>
     </div>
   </div>
+  <button id="new-project" class="new-project" title="Make a new project. Every card lives inside a project.">+ Project</button>
   <div class="pills" id="dept-pills"></div>
   <div class="controls">
     <input id="search" placeholder="Search cards…" autocomplete="off">
@@ -31,11 +32,13 @@
       <button data-v="queue">Queue</button>
       <button data-v="agents">Agents</button>
     </div>
+    <button id="help" class="help" title="Who may do what on this board" aria-label="Who may do what">?</button>
   </div>
   <div class="meta">
     <div class="stat"><span id="stat-projects">–</span><label>projects</label></div>
     <div class="stat"><span id="stat-open">–</span><label>open</label></div>
-    <div class="stat warn"><span id="stat-waiting">–</span><label>awaiting you</label></div>
+    <button class="stat warn" id="stat-waiting-btn" title="Jump to the Awaiting You column"><span id="stat-waiting">–</span><label>awaiting you</label></button>
+    <button class="stat bad" id="stat-refused-btn" title="Show today's refused changes in Activity"><span id="stat-refused">–</span><label>refused today</label></button>
     <div class="stat alert"><span id="stat-alerts">–</span><label>alerts</label></div>
   </div>
 </header>
@@ -45,13 +48,16 @@
   <aside id="activity">
     <div id="alerts-panel">
       <div class="panel-head">
-        <h2>Alerts</h2>
+        <h2>Alerts <span id="alerts-last" class="last-check"></span></h2>
         <button id="alerts-close" title="Close alerts panel" aria-label="Close alerts panel">×</button>
       </div>
       <div id="alerts"></div>
     </div>
     <button id="alerts-reopen" class="hidden" title="Show alerts panel">▸ Alerts <span id="alerts-reopen-count"></span></button>
-    <h2 style="margin-top:20px">Activity</h2>
+    <div class="panel-head">
+      <h2 style="margin-top:20px">Activity</h2>
+      <button id="refused-filter" class="linkish">show refusals only</button>
+    </div>
     <div id="events"></div>
   </aside>
 </main>
@@ -65,6 +71,6 @@
   </div>
 </div>
 
-<script src="app.js?v=ws03"></script>
+<script src="app.js?v=ws03b"></script>
 </body>
 </html>

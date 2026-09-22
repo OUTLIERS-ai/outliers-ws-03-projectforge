@@ -42,6 +42,8 @@ DEFAULTS = {
          "color": "#b06bff"},
     ],
     "hygiene": {
+        # how often the open board runs the no-AI health check
+        "check_every_min": 10,
         "stale_days": 5,
         "blocked_days": 3,
         "due_soon_days": 2,
@@ -55,6 +57,10 @@ DEFAULTS = {
         "routing": [],
     },
     "crm_today": {"enabled": False, "owner": ""},
+    # programs allowed to push cards onto the board (the CRM Today reader,
+    # or your own scripts using adapters/forge_client.py). Anything else
+    # that tries is refused.
+    "federate_sources": ["crm-today"],
     # the optional schedule. Off unless you switch it on with
     # tools/schedule.py; it only starts Claude when a card is ready.
     "schedule": {"installed": False, "every_min": 60, "model": ""},
@@ -100,7 +106,9 @@ def roles_from(cfg):
     return Roles(human=cfg.get("human", "you"),
                  orchestrator=cfg.get("orchestrator", "orchestrator"),
                  managers=cfg.get("managers", []),
-                 outward_owners=cfg.get("outward_owners", []))
+                 outward_owners=cfg.get("outward_owners", []),
+                 agents=cfg.get("agents", []),
+                 federate_sources=cfg.get("federate_sources", []))
 
 
 def atomic_write(path, text):

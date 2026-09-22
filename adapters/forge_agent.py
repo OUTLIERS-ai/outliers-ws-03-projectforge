@@ -8,8 +8,10 @@ written trail, not a guess.
 WHO MAY DO WHAT (checked by the board itself, not just this script):
   * MANAGERS (listed in config.json "managers") may `open` new cards.
   * WORKERS (every other agent) never open or move a card. They `card`
-    (read), `pass` (report work), `handoff` (pass it on), `comment`, and
-    `escalate` (ask their manager for new work).
+    (read), `pass` (report work), `handoff` (pass it on, which also makes
+    the next agent the card's owner), `comment`, and `escalate` (flag the
+    card for a person: shown in red in the activity list; it does not
+    move the card).
   * Only the orchestrator moves cards between columns. There is no `move`
     command here on purpose.
 
@@ -194,9 +196,10 @@ def main(argv=None):
             store.comment(a.card, a.text, actor=a.agent)
             print("comment added.")
         elif a.cmd == "escalate":
-            store.comment(a.card, f"[ESCALATION from {a.agent}] {a.note}",
-                          actor=a.agent)
-            print("escalation noted for your manager.")
+            store.escalate(a.card, a.note, actor=a.agent)
+            remirror()
+            print("escalation recorded. It shows in red in the board's "
+                  "activity list. The card has not moved.")
         elif a.cmd == "open":
             tid = store.open_card(a.agent, a.project, a.dept, a.title,
                                   assignee_agent=a.assignee,

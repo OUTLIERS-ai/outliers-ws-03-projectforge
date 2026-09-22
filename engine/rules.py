@@ -10,9 +10,15 @@ the store here:
     never move one.
   * The ORCHESTRATOR is the only agent that moves a card between columns.
 
+  * AWAITING YOU is yours. The orchestrator may put a card in it, but only
+    you take a card out of it.
+  * Programs that push cards in from elsewhere (for example the CRM Today
+    reader) must be named in config "federate_sources".
+
 This is a guard rail, not a lock. An agent that lies about its name gets
 through; one that follows its instructions and names itself honestly is
-stopped before it can make a mess.
+stopped before it can make a mess. Every refusal is written to the board's
+activity list, so you can see who tried what.
 """
 
 
@@ -28,11 +34,27 @@ class Roles:
     SYSTEM = {"hygiene"}  # the no-AI health check (returns hung cards)
 
     def __init__(self, human="you", orchestrator="orchestrator",
-                 managers=(), outward_owners=()):
+                 managers=(), outward_owners=(), agents=(),
+                 federate_sources=()):
         self.human = _n(human) or "you"
         self.orchestrator = _n(orchestrator) or "orchestrator"
         self.managers = {_n(m) for m in managers if _n(m)}
         self.outward = {_n(o) for o in outward_owners if _n(o)}
+        # every agent the installer found; empty = no check
+        self.agents = {_n(a) for a in agents if _n(a)}
+        if self.agents:
+            self.agents |= self.managers | self.outward
+        self.federate_sources = {_n(f) for f in federate_sources if _n(f)}
+
+    def known_agent(self, name):
+        """False only when we have a list of agents and the name is not on
+        it (a typo such as "writerbot" for "writer-bot")."""
+        if not self.agents:
+            return True
+        return _n(name) in self.agents
+
+    def can_federate(self, actor):
+        return self.kind(actor) == "you" or             _n(actor) in self.federate_sources
 
     def kind(self, actor):
         a = _n(actor)
@@ -70,8 +92,12 @@ class Roles:
                 f"refused: {what} needs a name. Pass actor=<who you are>.")
         if not ok:
             raise NotAllowed(
-                f"refused: {actor} is a {self.kind(actor)} and may not {what}."
+                f"refused: {actor} is {self._article(actor)} and may not {what}."
                 f" {self.hint(actor)}")
+
+    def _article(self, actor):
+        k = self.kind(actor)
+        return f"an {k}" if k[:1] in "aeiou" else f"a {k}"
 
     def hint(self, actor):
         k = self.kind(actor)
@@ -81,6 +107,8 @@ class Roles:
                     " them.")
         if k == "manager":
             return "Managers open cards; only the orchestrator moves them."
+        if k == "orchestrator":
+            return "Only you take a card out of Awaiting You."
         return ""
 
 
@@ -103,8 +131,11 @@ def check_handover(fields):
     problems = []
     for key, label in HANDOVER_FIELDS:
         v = (fields.get(key) or "").strip()
-        if v.lower() in _PLACEHOLDERS:
+        if not v or v.lower() in ("-", "--", "?", "...", "."):
             problems.append(f"missing {key}: {label}")
+        elif v.lower() in _PLACEHOLDERS:
+            problems.append(f"too thin {key}: '{v}' does not say "
+                            f"{label}")
     dec = (fields.get("decisions") or "").strip().lower()
     if dec and dec.lower() not in _PLACEHOLDERS and dec != "none" \
             and "because" not in dec:

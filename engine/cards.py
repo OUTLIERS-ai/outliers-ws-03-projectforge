@@ -1,6 +1,7 @@
 """Agent limit files (optional).
 
-One JSON file per agent in the `cards/` folder, named after the agent, says
+One JSON file per agent in the `cards/` folder, named after the agent
+(writer-bot.json limits the agent called writer-bot), says
 which departments it may be handed work in and how many times a day. The
 orchestrator refuses a hand-out that breaks either limit. An agent with no
 file has no limits. Only YOU write these files: an agent must never widen
@@ -32,15 +33,22 @@ def load_cards(base_dir):
             c = json.loads(fp.read_text(encoding="utf-8"))
         except (ValueError, OSError):
             continue
-        if isinstance(c, dict) and c.get("slug"):
+        if isinstance(c, dict):
+            # the FILE NAME names the agent (writer-bot.json limits
+            # writer-bot), so a copied example cannot limit the wrong agent
             c["_file"] = fp.name
-            out[c["slug"]] = c
+            out[fp.stem] = c
     return out
 
 
 def validate_card(c):
     """Return a list of problems with a card (empty = valid)."""
     problems = []
+    stem = Path(c.get("_file", "")).stem
+    if stem and c.get("slug") and c["slug"] != stem:
+        problems.append(f"slug says '{c['slug']}' but the file is named "
+                        f"'{c['_file']}'. The file name decides which agent "
+                        f"is limited ('{stem}'); set slug to '{stem}' too")
     for k in REQUIRED:
         if k not in c:
             problems.append(f"missing required field: {k}")

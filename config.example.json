@@ -48,6 +48,7 @@
     }
   ],
   "hygiene": {
+    "check_every_min": 10,
     "stale_days": 5,
     "blocked_days": 3,
     "due_soon_days": 2,
@@ -86,10 +87,14 @@
     "enabled": false,
     "owner": ""
   },
+  "federate_sources": [
+    "crm-today"
+  ],
   "schedule": {
     "installed": false,
     "every_min": 60,
-    "model": ""
+    "model": "",
+    "extra_allowed_tools": []
   },
   "orchestrator_cwd": "",
   "command_path": "C:/Users/<you>/.claude/commands/forge-run.md",
