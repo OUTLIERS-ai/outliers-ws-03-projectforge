@@ -43,15 +43,31 @@ async function api(path, body) {
   return j;
 }
 
-/* true while the member is typing somewhere; the 10-second refresh waits */
-function busy() {
+/* True while you are typing somewhere the refresh would wipe: a box you
+   have your cursor in, or a half-filled "+ Add card" form (the refresh
+   redraws the columns, so that form would vanish mid-sentence).
+
+   An OPEN CARD WINDOW is deliberately NOT in here any more. The window and
+   its boxes live outside the board, so a refresh never touches them, and
+   the board used to sit frozen behind an open card for as long as it stayed
+   open - showing "4 refused today" while the real figure was 7, with no
+   sign on screen that it had stopped. */
+function typing() {
   const a = document.activeElement;
   if (a && a.id !== "search" &&
       ["INPUT", "TEXTAREA", "SELECT"].includes(a.tagName)) return true;
   if (document.querySelector(".add-card form")) return true;
-  if (!document.getElementById("modal-backdrop").classList.contains("hidden"))
-    return true;
   return false;
+}
+
+/* When a refresh IS skipped, the header says so, with the time of the last
+   one. A board that quietly stops is worse than one that says it stopped. */
+function showRefreshState(paused) {
+  const el = document.getElementById("refresh-state");
+  if (!paused) { el.classList.add("hidden"); return; }
+  const t = (STATE && STATE.last_seen) || "";
+  el.textContent = `Paused while you are typing${t ? ` - last checked ${t}` : ""}. It carries on when you click away.`;
+  el.classList.remove("hidden");
 }
 
 function toast(msg) {
@@ -82,6 +98,8 @@ function crmLink(rel) {
 
 async function load() {
   STATE = await (await fetch("/api/state")).json();
+  STATE.last_seen = new Date().toTimeString().slice(0, 5);
+  showRefreshState(false);
   renderHeader();
   renderView();
   renderEvents();
@@ -115,8 +133,9 @@ function rulesHtml() {
         <td>move a card between columns</td></tr>
       <tr><td><span class="role r-worker">worker</span> every other agent</td>
         <td>add a work report, a 5-field handover, a comment, an escalation
-          (a flag saying it needs you)</td>
-        <td>open a card, move a card, edit a card</td></tr>
+          (asking for a person: the board then marks the card NEEDS YOU and
+          puts it in Awaiting You)</td>
+        <td>open a card, choose a card's column, edit a card</td></tr>
       <tr><td><span class="role r-orchestrator">orchestrator</span>
         the /forge-run command</td>
         <td>take a Ready card, save the result and move the card; put a
@@ -156,29 +175,46 @@ async function renderAlerts() {
   wireAlertsPanel();
   const alerts = await (await fetch("/api/alerts")).json();
   document.getElementById("stat-alerts").textContent = alerts.length;
+  countLabel("stat-alerts", alerts.length, "alert", "alerts");
   document.getElementById("alerts-reopen-count").textContent =
     alerts.length ? `(${alerts.length})` : "";
   const box = document.getElementById("alerts");
   const last = STATE && STATE.last_check;
-  document.getElementById("alerts-last").textContent =
-    last ? `last check ${last.slice(11, 16)}` : "not checked yet";
+  /* a health check that has stopped is said out loud, here, in red */
+  const broken = STATE && STATE.health_error;
+  document.getElementById("alerts-last").textContent = broken
+    ? "THE CHECK HAS STOPPED"
+    : (last ? `last check ${last.slice(11, 16)}` : "not checked yet");
+  document.getElementById("alerts-last").classList.toggle("broken", !!broken);
   box.innerHTML = alerts.length ? "" : (last
     ? `<div class="dimtext">All clear at the last check.</div>`
     : `<div class="dimtext">The health check has not run yet.</div>`);
   for (const a of alerts) {
     const el = document.createElement("div");
     el.className = `alert-item ${a.level}`;
+    /* an alert that names a card now gives you a way to reach it, and the
+       button says what it does instead of showing a bare × */
+    const onCard = a.task_id && a.task_id.indexOf("lane:") !== 0 &&
+      STATE.tasks.some(t => t.id === a.task_id);
     el.innerHTML = `
       <div class="al-body">
-        <span class="al-kind">${esc(a.kind)}</span> ${esc(a.message)}
-        <div class="ts">${esc(a.created)}</div>
+        <div class="al-kind">${esc(a.kind.replace(/-/g, " "))}</div>
+        ${esc(a.message)}
       </div>
-      <button class="al-x" title="Dismiss">×</button>`;
-    if (a.task_id && a.task_id.indexOf("lane:") !== 0)
+      <div class="al-foot">
+        ${onCard ? `<a href="#" class="al-open">Open this card ›</a>` : `<span></span>`}
+        <button class="al-x" title="Put this alert away until the next check">Hide for now</button>
+      </div>`;
+    if (onCard) {
       el.querySelector(".al-body").onclick = () => openDetail(a.task_id);
+      el.querySelector(".al-open").onclick = e => {
+        e.preventDefault(); e.stopPropagation(); openDetail(a.task_id);
+      };
+    }
     el.querySelector(".al-x").onclick = async e => {
       e.stopPropagation();
       await api("/api/alert/dismiss", { id: a.id, actor: HUMAN() });
+      toast("Hidden. The next health check puts it back if it is still true.");
       renderAlerts();
     };
     box.appendChild(el);
@@ -272,27 +308,50 @@ function ago(ts) {
 const FIELD_LABEL = { assignee_agent: "owner", context_ref: "link or file",
   crm_person: "CRM person", project_id: "project" };
 function lab(s) { return STATUS_LABEL[s] || s; }
+function countLabel(id, n, singular, plural) {
+  const stat = document.getElementById(id);
+  const el = stat && stat.parentElement.querySelector("label");
+  if (el) el.textContent = n === 1 ? singular : plural;
+}
+/* What the change happened to, in words: "the card Write 3 posts (Content
+   week 39)". Before this every row read "created this" and the list was a
+   wall of pronouns with nothing in it you could act on. */
+function evWhat(ev, withProject) {
+  if (!ev.entity_title)
+    return ev.entity_type === "project" ? "a project" : "a card";
+  const kind = ev.entity_type === "project" ? "the project" : "the card";
+  const proj = withProject && ev.parent_title
+    ? ` <span class="ev-proj">(${esc(ev.parent_title)})</span>` : "";
+  return `${kind} <b>${esc(ev.entity_title)}</b>${proj}`;
+}
 function evText(ev) {
   let d = {};
   try { d = JSON.parse(ev.detail || "{}"); } catch { d = {}; }
+  const what = evWhat(ev, true);
+  const it = evWhat(ev, false);
   switch (ev.action) {
-    case "moved": return `<b>${esc(ev.actor)}</b> moved ${esc(lab(d.from))} → ${esc(lab(d.to))}`;
-    case "handoff": return `<b>${esc(d.from)}</b> handed to <b>${esc(d.to)}</b> — ${esc(d.summary || "")}`;
-    case "created": return `<b>${esc(ev.actor)}</b> created this`;
-    case "comment": return `<b>${esc(ev.actor)}</b>: ${esc(d.text || "")}`;
-    case "tagged": return `<b>${esc(ev.actor)}</b> set tags: ${esc((d.tags || []).join(", ") || "none")}`;
-    case "pass": return `<b>${esc(ev.actor)}</b> logged a work report (${esc(d.result)}) — ${esc(d.summary || "")}`;
-    case "updated": return `<b>${esc(ev.actor)}</b> edited ${esc((d.fields || []).map(f => FIELD_LABEL[f] || f).join(", "))}`;
-    case "dispatched": return `<b>${esc(ev.actor)}</b> handed this to <b>${esc(d.agent)}</b>`;
-    case "refused": return `<span class="refused-text">REFUSED</span> <b>${esc(ev.actor)}</b>: ${esc(d.message || "")}`;
-    case "escalation": return `<span class="refused-text">NEEDS A PERSON</span> <b>${esc(ev.actor)}</b>: ${esc(d.text || "")}`;
-    case "checklist": return `<b>${esc(ev.actor)}</b> updated the checklist (${esc(d.done)}/${esc(d.total)} done)`;
-    case "auto-assigned": return `<b>${esc(ev.actor)}</b> gave it to <b>${esc(d.agent)}</b>`;
-    case "federated": return `<b>${esc(ev.actor)}</b> sent this in from ${esc(d.source_app || "another program")}`;
-    case "archived": return `<b>${esc(ev.actor)}</b> archived this`;
-    case "auto-queued": return `<b>${esc(ev.actor)}</b> moved Backlog → Ready`;
-    case "reaped": return `<b>${esc(ev.actor)}</b> sent it back to Ready: no report within ${esc(d.ttl_min)} minutes`;
-    default: return `<b>${esc(ev.actor)}</b> ${esc(ev.action)}`;
+    case "moved": return d.reason
+      ? `<b>${esc(ev.actor)}</b> asked for a person on ${what}, so it moved ${esc(lab(d.from))} → <b>Awaiting You</b>`
+      : `<b>${esc(ev.actor)}</b> moved ${it} ${esc(lab(d.from))} → ${esc(lab(d.to))}`;
+    case "handoff": return `<b>${esc(d.from)}</b> handed ${it} to <b>${esc(d.to)}</b> — ${esc(d.summary || "")}`;
+    case "created": return ev.entity_type === "project"
+      ? `<b>${esc(ev.actor)}</b> opened ${what}`
+      : `<b>${esc(ev.actor)}</b> added ${what}`;
+    case "comment": return `<b>${esc(ev.actor)}</b> on ${it}: ${esc(d.text || "")}`;
+    case "tagged": return `<b>${esc(ev.actor)}</b> tagged ${it}: ${esc((d.tags || []).join(", ") || "none")}`;
+    case "pass": return `<b>${esc(ev.actor)}</b> reported on ${it} (${esc(d.result)}) — ${esc(d.summary || "")}`;
+    case "updated": return `<b>${esc(ev.actor)}</b> edited ${esc((d.fields || []).map(f => FIELD_LABEL[f] || f).join(", "))} on ${it}`;
+    case "dispatched": return `<b>${esc(ev.actor)}</b> handed ${it} to <b>${esc(d.agent)}</b>`;
+    case "refused": return `<span class="refused-text">REFUSED</span> ${
+      esc((d.message || "").replace(/^refused:\s*/i, ""))}`;
+    case "escalation": return `<span class="refused-text">NEEDS YOU</span> <b>${esc(ev.actor)}</b> on ${what}: ${esc(d.text || "")}`;
+    case "checklist": return `<b>${esc(ev.actor)}</b> ticked the checklist on ${it} (${esc(d.done)}/${esc(d.total)} done)`;
+    case "auto-assigned": return `<b>${esc(ev.actor)}</b> gave ${it} to <b>${esc(d.agent)}</b>`;
+    case "federated": return `<b>${esc(ev.actor)}</b> sent ${what} in from ${esc(d.source_app || "another program")}`;
+    case "archived": return `<b>${esc(ev.actor)}</b> archived ${it}`;
+    case "auto-queued": return `<b>${esc(ev.actor)}</b> moved ${it} Backlog → Ready`;
+    case "reaped": return `<b>${esc(ev.actor)}</b> sent ${it} back to Ready: no report within ${esc(d.ttl_min)} minutes`;
+    default: return `<b>${esc(ev.actor)}</b> ${esc(ev.action)} ${it}`;
   }
 }
 
@@ -308,6 +367,16 @@ function renderHeader() {
     open.filter(t => t.status === "awaiting_you" && !t.archived).length;
   document.getElementById("stat-refused").textContent =
     STATE.refused_today ?? 0;
+  /* cards where an agent has asked for a person: the one change that needs
+     you, and the one that used to leave no mark anywhere */
+  const needs = STATE.tasks.filter(t => t.escalated && !t.archived).length;
+  const nBtn = document.getElementById("stat-needs-btn");
+  document.getElementById("stat-needs").textContent = needs;
+  nBtn.classList.toggle("lit", needs > 0);
+  /* "1 projects" read wrong every time you had 1 project */
+  countLabel("stat-projects",
+    STATE.projects.filter(p => p.status === "active").length,
+    "project", "projects");
 
   const pills = document.getElementById("dept-pills");
   pills.innerHTML = "";
@@ -343,8 +412,9 @@ function firstRunPanel() {
     <ol>
       <li><b>Make a project.</b> Every card lives inside one.
         <button id="fr-project">+ Project</button></li>
-      <li><b>Add a card</b> with "+ Add card" under Ready, and pick the agent
-        who owns it.</li>
+      <li><b>Add a card.</b> "+ Add card" sits at the TOP of every column,
+        under its heading. Use the one under Ready, and pick the agent who
+        owns it.</li>
       <li><b>In Claude Code, type <code>/forge-run dry</code></b> to see who
         would get it. Nothing changes until you run <code>/forge-run</code>.</li>
     </ol>
@@ -361,6 +431,20 @@ function renderBoard() {
   const fr = firstRunPanel();
   if (fr) board.appendChild(fr);
 
+  /* a search that finds nothing used to look exactly like an empty board */
+  if (searchQ && !STATE.tasks.some(t => matches(t))) {
+    const none = document.createElement("div");
+    none.className = "no-hits";
+    none.innerHTML = `<div>No card matches <b>${esc(searchQ)}</b>.</div>
+      <button id="clear-search">Clear the search</button>`;
+    none.querySelector("#clear-search").onclick = () => {
+      searchBox.value = ""; searchQ = ""; renderView();
+    };
+    board.appendChild(none);
+    renderColJump();
+    return;
+  }
+
   for (const status of COLUMN_ORDER.filter(s => STATE.statuses.includes(s))) {
     const tasks = STATE.tasks.filter(t => t.status === status && matches(t));
     // Tracking only matters once another program sends facts to it
@@ -373,6 +457,16 @@ function renderBoard() {
 
     col.innerHTML = `<div class="col-head"><h3>${STATUS_LABEL[status]}</h3>
       <span class="count">${tasks.length}</span></div>`;
+
+    /* "+ Add card" sits under the heading, not at the foot of the column.
+       At the foot it went off the bottom of the screen on a busy board -
+       measured at 2,800 px below the fold on a 1366 x 768 laptop - and
+       nothing on screen said it was down there. */
+    const add = document.createElement("div");
+    add.className = "add-card";
+    add.textContent = "+ Add card";
+    add.onclick = () => addCardForm(add, status);
+    col.appendChild(add);
 
     const zone = document.createElement("div");
     zone.className = "col-cards";
@@ -395,15 +489,49 @@ function renderBoard() {
 
     for (const t of tasks) zone.appendChild(cardEl(t));
     col.appendChild(zone);
-
-    // + add card footer
-    const add = document.createElement("div");
-    add.className = "add-card";
-    add.textContent = "+ Add card";
-    add.onclick = () => addCardForm(add, status);
-    col.appendChild(add);
     board.appendChild(col);
   }
+  renderColJump();
+}
+
+/* The bar under the header. It appears only when the columns are wider
+   than the window, names every column with its number of cards, and
+   scrolls to the one you click - so DONE, which sits off the right-hand
+   edge on a 1366-wide laptop, can always be reached. */
+/* the sticky panels need to know how tall the header actually is: it is
+   2 rows on a laptop and 1 on a wide screen */
+function syncStickyTops() {
+  const r = document.documentElement.style;
+  r.setProperty("--hdr",
+    Math.round(document.querySelector("header").getBoundingClientRect().height)
+    + "px");
+  const jump = document.getElementById("col-jump");
+  r.setProperty("--jump", jump.classList.contains("hidden") ? "0px"
+    : Math.round(jump.getBoundingClientRect().height) + "px");
+}
+
+function renderColJump() {
+  const bar = document.getElementById("col-jump");
+  const board = document.getElementById("board");
+  const cols = viewMode === "board" ? [...board.querySelectorAll(".col")] : [];
+  const over = cols.length && board.scrollWidth > board.clientWidth + 4;
+  bar.classList.toggle("hidden", !over);
+  if (!over) { syncStickyTops(); return; }
+  bar.innerHTML = `<span class="cj-label">Not every column fits on screen.
+    Jump to:</span>`;
+  for (const col of cols) {
+    const b = document.createElement("button");
+    b.textContent = `${col.querySelector("h3").textContent} ` +
+      `${col.querySelector(".count").textContent}`;
+    b.onclick = () => {
+      col.scrollIntoView({ behavior: "smooth", inline: "start",
+        block: "nearest" });
+      col.classList.add("flash");
+      setTimeout(() => col.classList.remove("flash"), 1400);
+    };
+    bar.appendChild(b);
+  }
+  syncStickyTops();
 }
 
 function cardEl(t) {
@@ -417,6 +545,7 @@ function cardEl(t) {
   const clDone = cl.filter(i => i.done).length;
   const dc = dueClass(t.due, t.status);
   card.innerHTML = `
+    ${t.escalated ? `<div class="needs-you" title="An agent has asked for a person on this card">NEEDS YOU</div>` : ""}
     <div class="title">${t.priority !== "normal" && t.priority ?
       `<span class="prio p-${esc(t.priority)}" title="${esc(t.priority)}"></span>` : ""}${esc(t.title)}</div>
     ${t.status === "in_progress" ? `<div class="working" title="dispatched to an agent">
@@ -458,19 +587,21 @@ function addCardForm(anchor, status) {
   const f = document.createElement("form");
   const noProject = !projs.length;
   f.innerHTML = `
-    <input name="title" placeholder="Card title…" autocomplete="off" required>
+    <label class="mini-label">Card title<input name="title"
+      placeholder="e.g. Draft the January newsletter" autocomplete="off"
+      required></label>
     ${noProject ? `<div class="form-hint">Cards live inside a project. Name
         your first project:</div>
       <input name="newproj" placeholder="Project name, e.g. Content week 39"
         autocomplete="off" required>
-      <select name="dept">${STATE.config.departments.map(d =>
+      <label class="mini-label">Department<select name="dept">${STATE.config.departments.map(d =>
         `<option value="${esc(d.id)}" ${d.id === activeDept ? "selected" : ""}>${
-        esc(d.name)}</option>`).join("")}</select>`
-    : `<select name="project">${projs.map(p =>
-      `<option value="${esc(p.id)}">${esc(p.title)}</option>`).join("")}</select>`}
-    <select name="agent" title="Who owns this card">
+        esc(d.name)}</option>`).join("")}</select></label>`
+    : `<label class="mini-label">Project<select name="project">${projs.map(p =>
+      `<option value="${esc(p.id)}">${esc(p.title)}</option>`).join("")}</select></label>`}
+    <label class="mini-label">Owner<select name="agent" title="Who owns this card">
       <option value="">no owner yet</option>
-      ${ownerOptions("")}</select>
+      ${ownerOptions("")}</select></label>
     <div class="form-row">
       <button type="submit">Add</button>
       <button type="button" class="ghost" data-x>Cancel</button>
@@ -502,14 +633,18 @@ function openNewProject() {
   body.innerHTML = `
     <h2>New project</h2>
     <form id="np-form" class="stack">
-      <label>Title <input name="title" required autocomplete="off"></label>
+      <label>Title <input name="title" required autocomplete="off"
+        placeholder="e.g. Content week 39"></label>
       <label>Department <select name="department">${
         STATE.config.departments.map(d =>
           `<option value="${esc(d.id)}">${esc(d.name)}</option>`).join("")
       }</select></label>
-      <label>Summary <textarea name="summary" rows="3"></textarea></label>
-      <div class="form-row"><button type="submit">Create</button></div>
+      <label>Summary <textarea name="summary" rows="3"
+        placeholder="What this project is for (you can leave this empty)"></textarea></label>
+      <div class="form-row"><button type="submit">Create</button>
+        <button type="button" class="ghost" id="np-cancel">Cancel</button></div>
     </form>`;
+  document.getElementById("np-cancel").onclick = () => closeModal(true);
   document.getElementById("np-form").onsubmit = async e => {
     e.preventDefault();
     const f = e.target;
@@ -747,6 +882,19 @@ async function renderEvents() {
   const btn = document.getElementById("refused-filter");
   btn.textContent = showRefused ? "show everything" : "show refusals only";
   if (showRefused) events = events.filter(e => e.action === "refused");
+  /* Making your first card writes 2 rows: the project, then the card. They
+     read as the same line twice, so the project row is folded into the card
+     row when the same person did both within a minute. */
+  if (!showRefused) events = events.filter((e, i) => {
+    if (e.action !== "created" || e.entity_type !== "project") return true;
+    const next = events[i - 1];   // newest first, so the card is BEFORE it
+    if (!next || next.action !== "created" || next.entity_type !== "task")
+      return true;
+    if (next.actor !== e.actor) return true;
+    if (Math.abs(ts2date(next.ts) - ts2date(e.ts)) > 60000) return true;
+    next._alsoProject = e.entity_title;
+    return false;
+  });
   if (!events.length)
     box.innerHTML = `<div class="dimtext">${showRefused
       ? "No refusals in the last 40 changes." : "Nothing has happened yet."}</div>`;
@@ -754,8 +902,11 @@ async function renderEvents() {
     const el = document.createElement("div");
     el.className = "ev" + (ev.action === "refused" || ev.action === "escalation"
       ? " ev-bad" : "");
+    const extra = ev._alsoProject
+      ? ` <span class="ev-proj">(and opened the project ${
+          esc(ev._alsoProject)})</span>` : "";
     el.innerHTML = `<div class="dot ev-${esc(ev.action)}"></div>
-      <div class="body">${evText(ev)}<div class="ts">${esc(ev.ts)}</div></div>`;
+      <div class="body">${evText(ev)}${extra}<div class="ts">${esc(ev.ts)}</div></div>`;
     if (ev.entity_type === "task" && ev.entity_id && ev.entity_id !== "-" &&
         STATE.tasks.some(t => t.id === ev.entity_id)) {
       el.classList.add("clickable");
@@ -1095,6 +1246,23 @@ document.querySelectorAll(".toggle button").forEach(b =>
 document.getElementById("new-project").onclick = openNewProject;
 document.getElementById("help").onclick = openRules;
 document.getElementById("stat-waiting-btn").onclick = jumpToAwaiting;
+document.getElementById("stat-needs-btn").onclick = jumpToAwaiting;
+
+/* Folding the activity list away gives the columns 270 px back, which is
+   most of what DONE needs on a 1366-wide laptop. */
+function setActivityPanel(open) {
+  try { localStorage.setItem("pf-activity-open", open ? "1" : "0"); } catch (e) { /* ignore */ }
+  document.getElementById("activity").classList.toggle("folded", !open);
+  document.getElementById("activity-reopen").classList.toggle("hidden", open);
+  renderColJump();
+}
+document.getElementById("activity-close").onclick = () => setActivityPanel(false);
+document.getElementById("activity-reopen").onclick = () => setActivityPanel(true);
+(function initActivity() {
+  let saved = "1";
+  try { saved = localStorage.getItem("pf-activity-open") ?? "1"; } catch (e) { /* ignore */ }
+  setActivityPanel(saved !== "0");
+})();
 document.getElementById("stat-refused-btn").onclick = () => {
   showRefused = true; renderEvents();
   document.getElementById("activity").scrollIntoView({ behavior: "smooth" });
@@ -1121,6 +1289,11 @@ function applyTheme(t) {
 })();
 
 load();
-/* refresh every 10 seconds, but never while you are typing or a window
-   is open: a redraw would throw away what you typed */
-setInterval(() => { if (!busy()) load(); }, 10000);
+/* Refresh every 10 seconds. It pauses only while you are typing, and says
+   so in the line under the header when it does. */
+setInterval(() => { if (typing()) showRefreshState(true); else load(); }, 10000);
+window.addEventListener("resize", () => {
+  clearTimeout(window._pfRs);
+  window._pfRs = setTimeout(() => { renderColJump(); syncStickyTops(); }, 200);
+});
+syncStickyTops();

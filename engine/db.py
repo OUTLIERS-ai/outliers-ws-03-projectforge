@@ -6,13 +6,15 @@ The board holds no AI. It stores work and enforces who may change what:
   * every write names who made it; there is no silent default author
 """
 import json
+import re
 import secrets
 import sqlite3
 import threading
 import time
 from pathlib import Path
 
-from .rules import (NotAllowed, Roles, check_handover, handover_summary)
+from .rules import (NotAllowed, Roles, check_handover,
+                    handover_refusal_for_the_board, handover_summary)
 
 STATUSES = [
     "backlog",
@@ -145,7 +147,36 @@ MIGRATIONS = (
     "ALTER TABLE handoffs ADD COLUMN state TEXT DEFAULT ''",
     "ALTER TABLE handoffs ADD COLUMN next_first TEXT DEFAULT ''",
     "ALTER TABLE handoffs ADD COLUMN warnings TEXT DEFAULT ''",
+    # set when an agent asks for a person, so the card can carry a mark you
+    # can see instead of one line in a list that scrolls away
+    "ALTER TABLE tasks ADD COLUMN escalated INTEGER DEFAULT 0",
 )
+
+DUE_SHAPE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def check_due(value):
+    """A due date is YYYY-MM-DD, or empty for no due date.
+
+    Refused here, where it is typed. A due date in words used to be saved
+    happily and then stopped the board's health check every time it ran, so
+    alerts, the 45-minute return of stuck cards and auto-archive all stopped
+    with nothing on screen to say why.
+    """
+    v = (value or "").strip()
+    if not v:
+        return ""
+    if not DUE_SHAPE.match(v):
+        raise ValueError(
+            f"a due date must be written as YYYY-MM-DD, for example "
+            f"2026-10-02. '{v}' is not, so nothing was changed.")
+    try:
+        time.strptime(v, "%Y-%m-%d")
+    except ValueError:
+        raise ValueError(
+            f"there is no such date as '{v}'. Write the due date as "
+            f"YYYY-MM-DD, for example 2026-10-02. Nothing was changed.")
+    return v
 
 
 def now() -> str:
@@ -354,8 +385,12 @@ class Store:
             raise ValueError(f"unknown status: {status}")
         row = self._task_row(task_id)
         self._guard_awaiting_you(row, status, actor)
-        self.conn.execute("UPDATE tasks SET status=?, updated=? WHERE id=?",
-                          (status, now(), task_id))
+        # moving the card on is how you answer an agent that asked for a
+        # person, so the NEEDS YOU mark comes off here
+        keep = 1 if status == "awaiting_you" else 0
+        self.conn.execute(
+            "UPDATE tasks SET status=?, updated=?, escalated=escalated*?"
+            " WHERE id=?", (status, now(), keep, task_id))
         self.conn.commit()
         self.log(actor, "task", task_id, "moved",
                  {"from": row["status"], "to": status})
@@ -414,6 +449,8 @@ class Store:
             return
         if sets.get("priority") and sets["priority"] not in PRIORITIES:
             raise ValueError(f"unknown priority: {sets['priority']}")
+        if "due" in sets:
+            sets["due"] = check_due(sets["due"])
         if "title" in sets:
             self._check_title(sets["title"])
             sets["title"] = sets["title"].strip()
@@ -536,18 +573,40 @@ class Store:
 
     @_locked
     def escalate(self, task_id, note, actor=None):
-        """A worker asks for help. Adds a flagged entry to the card's
-        activity (shown in red on the board). It does not move the card:
-        workers never move cards."""
+        """A worker asks for a person.
+
+        3 marks, because this is the one change that needs YOU and it used
+        to leave no sign at all: a red NEEDS YOU chip on the card face, a
+        count in the header, and the card joins Awaiting You, your own
+        column. The health check also raises an alert for it, so it survives
+        the activity list scrolling away.
+        """
         if not (actor or "").strip():
             raise NotAllowed("refused: an escalation needs the agent's name")
         if not (note or "").strip():
             raise ValueError("an escalation needs a note saying what you need")
-        self._task_row(task_id)
-        self.conn.execute("UPDATE tasks SET updated=? WHERE id=?",
-                          (now(), task_id))
+        row = self._task_row(task_id)
+        ts = now()
+        self.conn.execute("UPDATE tasks SET escalated=1, updated=? WHERE id=?",
+                          (ts, task_id))
         self.conn.commit()
         self.log(actor, "task", task_id, "escalation", {"text": note})
+        if row["status"] not in ("awaiting_you", "done"):
+            self.conn.execute(
+                "UPDATE tasks SET status='awaiting_you', updated=?"
+                " WHERE id=?", (ts, task_id))
+            self.conn.commit()
+            self.log(actor, "task", task_id, "moved",
+                     {"from": row["status"], "to": "awaiting_you",
+                      "reason": "asked for a person"})
+
+    @_locked
+    def open_escalations(self):
+        """Cards where an agent has asked for a person and you have not yet
+        moved the card on."""
+        return [dict(r) for r in self.conn.execute(
+            "SELECT id, title, assignee_agent FROM tasks"
+            " WHERE escalated=1 AND archived=0")]
 
     @_locked
     def handoff(self, task_id, from_agent, to_agent, done="", decisions="",
@@ -564,8 +623,10 @@ class Store:
                   "next_first": next_first, "warnings": warnings}
         problems = check_handover(fields)
         if problems:
+            # 2 copies of the same refusal: the board gets the plain one,
+            # the agent's terminal gets the one with the options to fill in
             self._refused(from_agent, task_id,
-                          "handover refused: " + "; ".join(problems))
+                          handover_refusal_for_the_board(from_agent, fields))
             raise ValueError("handover refused - a handover must carry all 5 "
                              "fields: " + "; ".join(problems))
         self._task_row(task_id)
@@ -645,6 +706,8 @@ class Store:
             raise ValueError(f"unknown status: {status}")
         if priority is not None and priority not in PRIORITIES:
             raise ValueError(f"unknown priority: {priority}")
+        if due is not None:
+            due = check_due(due)
         if self.conn.execute("SELECT id FROM projects WHERE id=?",
                              (project_id,)).fetchone() is None:
             raise KeyError(project_id)
@@ -1086,6 +1149,25 @@ class Store:
         return new, cleared
 
     @_locked
+    def raise_alert(self, kind, task_id, message, level="alert"):
+        """Put one alert on the board straight away, outside the health
+        check. Used when the health check itself fails: a failure that only
+        printed in a terminal window was a failure nobody saw. The next
+        health check that works clears it, because sync_alerts closes every
+        open alert it does not find again."""
+        row = self.conn.execute(
+            "SELECT id FROM alerts WHERE kind=? AND task_id=? AND resolved=''",
+            (kind, task_id)).fetchone()
+        if row:
+            self.conn.execute("UPDATE alerts SET message=? WHERE id=?",
+                              (message, row["id"]))
+        else:
+            self.conn.execute(
+                "INSERT INTO alerts (kind, task_id, message, level, created)"
+                " VALUES (?,?,?,?,?)", (kind, task_id, message, level, now()))
+        self.conn.commit()
+
+    @_locked
     def open_alerts(self):
         return [dict(r) for r in self.conn.execute(
             "SELECT * FROM alerts WHERE resolved='' ORDER BY level DESC,"
@@ -1113,8 +1195,28 @@ class Store:
 
     @_locked
     def recent_events(self, limit=40):
-        return [dict(r) for r in self.conn.execute(
+        """The activity list, with the NAME of what each change happened to.
+
+        Without the names every row read "created this" and the list was a
+        wall of pronouns. entity_title is the card or project; parent_title
+        is the project a card lives in.
+        """
+        rows = [dict(r) for r in self.conn.execute(
             "SELECT * FROM events ORDER BY id DESC LIMIT ?", (limit,))]
+        cards = {r["id"]: (r["title"], r["project_id"]) for r in
+                 self.conn.execute("SELECT id, title, project_id FROM tasks")}
+        projects = {r["id"]: r["title"] for r in
+                    self.conn.execute("SELECT id, title FROM projects")}
+        for e in rows:
+            title, parent = "", ""
+            if e["entity_type"] == "task" and e["entity_id"] in cards:
+                title, pid = cards[e["entity_id"]]
+                parent = projects.get(pid, "")
+            elif e["entity_type"] == "project":
+                title = projects.get(e["entity_id"], "")
+            e["entity_title"] = title
+            e["parent_title"] = parent
+        return rows
 
     @_locked
     def agents_summary(self):

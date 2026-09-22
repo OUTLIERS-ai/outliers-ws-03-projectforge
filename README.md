@@ -75,7 +75,7 @@ python forge_agent.py open --agent <manager> --dept content --project "..." --ti
   you visit cannot add or move cards.
 - Only programs named in `federate_sources` in config.json may push cards in.
 - Awaiting You is yours: the orchestrator may put a card in it, never take one out.
-- A card in Ready can be claimed once; a second `/forge-run` cannot take it.
+- A card in Ready can be taken once; a second `/forge-run` cannot take it.
 - A second copy of the board on the same port fails with a clear message.
 - The optional unattended run (`tools/run_if_ready.py`) starts Claude in
   "dontAsk" mode with exactly the board commands it needs allowed; anything

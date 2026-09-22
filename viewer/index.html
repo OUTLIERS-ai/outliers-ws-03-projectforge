@@ -5,7 +5,7 @@
 <title>ProjectForge</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="favicon.png">
-<link rel="stylesheet" href="style.css?v=ws03b">
+<link rel="stylesheet" href="style.css?v=ws03c">
 </head>
 <body>
 <header>
@@ -39,9 +39,12 @@
     <div class="stat"><span id="stat-open">–</span><label>open</label></div>
     <button class="stat warn" id="stat-waiting-btn" title="Jump to the Awaiting You column"><span id="stat-waiting">–</span><label>awaiting you</label></button>
     <button class="stat bad" id="stat-refused-btn" title="Show today's refused changes in Activity"><span id="stat-refused">–</span><label>refused today</label></button>
+    <button class="stat needs" id="stat-needs-btn" title="Cards where an agent has asked for a person. They wait in Awaiting You."><span id="stat-needs">–</span><label>needs you</label></button>
     <div class="stat alert"><span id="stat-alerts">–</span><label>alerts</label></div>
   </div>
 </header>
+<div id="refresh-state" class="hidden"></div>
+<nav id="col-jump" class="hidden" aria-label="Jump to a column"></nav>
 
 <main>
   <div id="board"></div>
@@ -56,10 +59,12 @@
     <button id="alerts-reopen" class="hidden" title="Show alerts panel">▸ Alerts <span id="alerts-reopen-count"></span></button>
     <div class="panel-head">
       <h2 style="margin-top:20px">Activity</h2>
-      <button id="refused-filter" class="linkish">show refusals only</button>
+      <button id="activity-close" title="Hide this panel and give the columns the space" aria-label="Hide the activity panel">×</button>
     </div>
+    <button id="refused-filter" class="linkish">show refusals only</button>
     <div id="events"></div>
   </aside>
+  <button id="activity-reopen" class="hidden" title="Show the activity panel">◂ Activity</button>
 </main>
 
 <div id="toast" class="hidden"></div>
@@ -71,6 +76,6 @@
   </div>
 </div>
 
-<script src="app.js?v=ws03b"></script>
+<script src="app.js?v=ws03c"></script>
 </body>
 </html>

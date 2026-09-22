@@ -68,6 +68,11 @@ DEFAULTS = {
 }
 
 
+class ConfigError(Exception):
+    """config.json could not be read. Carries one plain sentence naming the
+    line, instead of the wall of error text a broken file used to produce."""
+
+
 def config_path() -> Path:
     env = os.environ.get("FORGE_CONFIG")
     return Path(env) if env else REPO / "config.json"
@@ -83,11 +88,35 @@ def _merge(base, over):
     return out
 
 
+def read_json_file(p) -> dict:
+    """Read a settings file a member may have edited by hand.
+
+    utf-8-sig drops the mark Notepad and PowerShell put at the start of a
+    file saved as "UTF-8 with BOM". A trailing comma, or anything else JSON
+    will not take, comes back as one sentence naming the line.
+    """
+    p = Path(p)
+    try:
+        raw = p.read_text(encoding="utf-8-sig", errors="replace")
+    except OSError as e:
+        raise ConfigError(f"{p} could not be opened: {e.strerror or e}.")
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise ConfigError(
+            f"{p} could not be read: line {e.lineno} is wrong ({e.msg}). "
+            f"Open that file, fix line {e.lineno}, and save it as plain "
+            f"UTF-8 - or delete the file and run: python install.py")
+    if not isinstance(data, dict):
+        raise ConfigError(
+            f"{p} must hold settings between curly brackets. Fix it, or "
+            f"delete the file and run: python install.py")
+    return data
+
+
 def load_config(path=None) -> dict:
     p = Path(path) if path else config_path()
-    data = {}
-    if p.is_file():
-        data = json.loads(p.read_text(encoding="utf-8"))
+    data = read_json_file(p) if p.is_file() else {}
     cfg = _merge(DEFAULTS, data)
     cfg["_path"] = str(p)
     return cfg

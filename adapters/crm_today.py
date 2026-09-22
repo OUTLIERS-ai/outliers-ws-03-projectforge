@@ -23,7 +23,7 @@ from pathlib import Path
 BASE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE))
 
-from engine.config import load_config  # noqa: E402
+from engine.config import ConfigError, load_config  # noqa: E402
 from engine.db import open_store  # noqa: E402
 
 # rank | person | why | when   (a [[link|alias]] may carry a | of its own)
@@ -60,7 +60,8 @@ def read_today(crm_vault):
     if not page.is_file():
         return None
     rows = []
-    for line in page.read_text(encoding="utf-8").splitlines():
+    for line in page.read_text(encoding="utf-8",
+                              errors="replace").splitlines():
         m = ROW.match(line.strip())
         if not m:
             continue
@@ -100,7 +101,11 @@ def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args(argv)
-    cfg = load_config()
+    try:
+        cfg = load_config()
+    except ConfigError as e:
+        print(e)
+        return 1
     crm = cfg.get("crm_vault")
     if not crm:
         print("No CRM vault in config.json - run install.py first.")

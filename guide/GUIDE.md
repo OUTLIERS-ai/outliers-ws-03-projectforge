@@ -11,14 +11,23 @@ ProjectForge is a work board, like a Trello board, that runs on your own compute
 
 The board has up to 8 columns. **Awaiting You** comes first, because it is the only column that needs you. Then Backlog, Ready, In Progress, Blocked, Review and Done. An 8th column, Tracking, appears only once you connect another program, such as your CRM, that sends in cards that just report a status and are not work for an agent. On the right is a live list of who did what and when, and any change the board refused (for example, an agent trying to move a card it is not allowed to move) shows there in red.
 
-![The board with made-up work for a made-up bookkeeping business. Every business, person and agent name in this guide's examples is made up. The numbered yellow marks are explained in the box.](img/board.png)
+![The board with made-up work for a made-up bookkeeping business. Every business, person and agent name in this guide's examples is made up. The 4 yellow marks are explained under the picture.](img/board.png)
+
+1. The bar that appears when the columns are wider than the window. Click a column name and the board scrolls to it.
+2. **+ Add card**, at the top of every column.
+3. A red **NEEDS YOU** label: an agent has asked for a person on this card, so the card has moved into Awaiting You. The header counts these under "needs you".
+4. The Activity list: every change, newest first, each line naming the card and its project. Refusals and requests for a person are in red. **show refusals only** narrows it to the changes the board refused.
+
+Not every column fits on a laptop screen. When they do not, a bar under the header names every column with its number of cards; click a name and the board scrolls to that column. The Activity list on the right can also be folded away with the **x** beside its heading, which gives the columns another 270 pixels.
+
+![Clicking "Done" in the bar under the header scrolls the board to the Done column. On a screen 1366 pixels wide, 7 columns need 1,610 pixels and the space is 1,126, so 2 columns are always off the edge.](img/columns-reachable.png)
 
 Click a card and you see its full record: notes, checklist, a link to a person in your CRM vault, every work report an agent wrote against it (what it did, which files it made, the result, the next step), and every handover from agent to agent.
 
 The board itself contains no AI. It stores the work and it enforces these rules:
 
 1. **Managers open cards.** You choose which of your agents are managers. Every other agent is a worker.
-2. **Workers only add to a card.** A worker can write a work report, a handover, a comment or an escalation (a flag saying it needs a person). It can never open a card or move one.
+2. **Workers only add to a card.** A worker can write a work report, a handover, a comment or an escalation (asking for a person: that marks the card NEEDS YOU and the board puts it in Awaiting You). A worker can never open a card, and never chooses which column a card sits in.
 3. **Only the orchestrator moves cards.** The orchestrator is a single Claude Code session, started when you type `/forge-run` into Claude Code (the installer adds that command). It is the only agent allowed to move a card between columns. You can move cards too.
 4. **Awaiting You is yours.** The orchestrator may put a card into it. Only you take a card out.
 
@@ -40,6 +49,8 @@ This is piece 3 of 4 in the agent workspace. Install them in order: 1 agent-flow
 | 127.0.0.1 and localhost | 2 ways of writing "this computer". An address that starts with either of them opens only on your own computer. |
 | Port | The number after the colon in an address such as http://127.0.0.1:3020. It picks out which program on your computer answers. In this set of 4: agent-flow 3001, FleetView 3010, ProjectForge 3020, Jeeves 4040. |
 | `--actor` | The part of a command that says who is making the change. |
+| Escalation | An agent asking for a person. It marks the card **NEEDS YOU**, counts it in the header, and moves the card into Awaiting You. |
+| Health check | A scan with no AI in it that the board runs when it starts and every 10 minutes: overdue cards, stale cards, stuck cards, cards with no owner, and cards whose agent never reported. |
 | writer-bot, editor-bot, content-lead | Made-up agent names used in the examples. Type your own agents' names instead. |
 
 ![The life of a card: who may do what at each step, and what the board refuses.](img/card-life.png)
@@ -120,6 +131,23 @@ The plan said the database should refuse a thin handover. **That refusal was nev
 - **Safety fixes found in testing on 2026-09-22**, before any member had it: a web page open in your browser can no longer send changes to the board's address (before this fix, any page could); every change made with `forge.py` (the board's terminal commands) must name who made it; the orchestrator can no longer take a card out of Awaiting You; a card cannot be taken twice; starting a second board at the same address (http://127.0.0.1:3020) now stops with a message instead of starting silently.
 - The "Awaiting Ashley" column is now "Awaiting You". Every folder path comes from a single settings file the installer writes. The desktop app and the adapters written for Ashley's own systems were left out.
 
+### 2026-09-23: a second round of fixes, from testing the download itself
+
+A reliability run of 231 operations, and a second cold walk through the board, found 12 faults before any member had the download. All 12 are fixed, each with a test that failed first:
+
+- **A due date typed in words used to stop the health check for good.** `--due "tomorrow"` was accepted, and from then on every check died on that one card: no alerts, no 45-minute return of stuck cards, no auto-archive, and nothing on screen to say why. A due date must now be written as YYYY-MM-DD, refused where you type it; a bad date already saved raises an alert on that card instead of ending the run; and a health check that fails for any reason now says so **on the board**, in red, with an alert.
+- **The Activity list had no height of its own.** On a board with 40 changes on it, the page grew to 3,634 pixels on a 768-pixel screen and every "+ Add card" button sat about 2,800 pixels below the fold. The list now scrolls inside itself, and "+ Add card" has moved to the top of each column. Measured again: 849 pixels, all 7 buttons on screen.
+- **The board froze while a card was open** and showed a stale figure with no sign: "4 refused today" for 25 seconds while the real figure was 7. It now keeps refreshing behind an open card, and pauses only while you are typing, saying so when it does.
+- **A `Today.md` saved in the old Windows text format** (an accent, a pound sign, a curly quote) crashed the CRM reader. It is read the forgiving way now.
+- **A `config.json` edited by hand** gave a wall of error text from every command. Notepad's "UTF-8 with BOM" is now read without complaint, and a trailing comma gives 1 sentence naming the line.
+- **Uninstalling while a file inside the tool folder was open** crashed half way, after `/forge-run` had already gone. The risky step now runs first, says in plain words what to close, changes nothing else, and works when you run it again.
+- **The summary note was written into a folder the board made up** when the vault was missing, and reported success. It now refuses and names the folder.
+- **A member with no Obsidian vault could not install.** Question 1 now takes `none`, like question 2.
+- **An agent asking for a person left no mark.** It now marks the card, counts it in the header, moves it into Awaiting You and raises an alert.
+- **The Activity list was a wall of pronouns** ("you created this", 11 times). Every line now names the card and its project.
+- **DONE was off the right-hand edge** at both screen sizes, with a scroll bar 9 per cent white on a near-black board. There is now a bar naming every column, the Activity list folds away, and the board's own scroll bar is the accent colour.
+- **Smaller:** a search with no matches says so; refusals on the board no longer show the command-line options an agent types; every alert links to its card; and the installer needs Python 3.11 or newer.
+
 ![A worker trying to open a card, a worker trying to move a card, and a thin handover. The board refuses all 3. Each refusal ends with a number (the exit code) that a script can read to tell which refusal happened. pf-t-6c37e9 is a card's id.](img/refusals.png)
 
 ## Pros and cons
@@ -140,17 +168,17 @@ The plan said the database should refuse a thin handover. **That refusal was nev
 
 | You need | How to check |
 |---|---|
-| Python 3.9 or newer (tested on 3.13) | Open a terminal and type `python --version`. On a Mac use `python3 --version`. |
+| Python 3.11 or newer (tested on 3.13) | Open a terminal and type `python --version`. On a Mac use `python3 --version`. The installer refuses anything older and changes nothing: Python 3.9 stopped getting security fixes on 2025-10-31 and 3.10 stops on 2026-10-31. |
 | Git | `git --version` |
 | Claude Code, logged in | `claude --version`. Tested on version 2.1.278 on 2026-09-22. |
-| Your second brain vault | You know its folder, for example `C:\Users\<you>\Documents\Second Brain`. |
+| Optional: your second brain vault | You know its folder, for example `C:\Users\<you>\Documents\Second Brain`. If you have not got one, type `none` at question 1 and everything else works the same. |
 | Your agents folder | Usually `C:\Users\<you>\.claude\agents` (Windows) or `~/.claude/agents` (Mac). |
 | Optional: your CRM vault | The folder that contains `Today.md` (your CRM's ranked list of people to contact today) and `People/`. |
 | Optional, for the tests: pytest (a program that runs the download's automatic checks) | `python -m pytest --version`. If missing: `python -m pip install pytest`. |
 
 You do not need Node.js (another programming tool some downloads ask for). Nothing is installed from the internet: the board only uses parts that come with Python.
 
-![The 4 checks, as they looked on the test computer on 2026-09-22.](img/before-you-start.png)
+![The 4 checks, as they looked on the test computer on 2026-09-23.](img/before-you-start.png)
 
 ## Install it
 
@@ -162,7 +190,7 @@ git clone https://github.com/OUTLIERS-ai/outliers-ws-03-projectforge; cd outlier
 ```
 
 3. Answer the 8 questions. Most offer a default in square brackets; press Enter to accept it. Questions 4 and 5 have no default: press Enter for nobody.
-   - Question 1: your second brain vault folder.
+   - Question 1: your second brain vault folder, **or `none` if you have not got a vault**. With `none`, questions 7 and 8 answer themselves and the board works exactly the same: the only part you lose is the summary note, which lives in a vault.
    - Question 2: your CRM vault folder, or `none`.
    - Question 3: your agents folder. The installer lists every agent it finds.
    - Question 4: which agents are **managers** (may open cards). Press Enter and only you open cards.
@@ -175,11 +203,13 @@ git clone https://github.com/OUTLIERS-ai/outliers-ws-03-projectforge; cd outlier
 
 ![A finished install for a made-up member called Sam. Yellow is what Sam typed.](img/install-output.png)
 
+![The same install with no Obsidian vault at all: `none` at question 1, and questions 7 and 8 answer themselves.](img/no-vault.png)
+
 6. Open the board: `python forge.py serve`, then visit `http://127.0.0.1:3020` in your browser (127.0.0.1 means your own computer; nothing goes online). There is no login and no wait. The terminal prints the address and then stays quiet while the board runs. That is normal. Leave the window open; press Ctrl+C in it to stop the board. The name under "ProjectForge" comes from the `workspace` line in `config.json`, the settings file the installer wrote; change it there.
 
 ![A fresh board: empty, with the 3 first steps on the left and Awaiting You as the first column.](img/first-run.png)
 
-7. The board opens empty, with 3 steps on the left. Your first card: click "+ Add card" under Ready. Because there is no project yet, the form asks you to name one, and the card and the project are made together.
+7. The board opens empty, with 3 steps on the left. Your first card: click "+ Add card", which sits **at the top of every column, under its heading**, and use the one under Ready. Because there is no project yet, the form asks you to name one, and the card and the project are made together.
 
 ![A fresh board on a laptop screen 1366 pixels wide, with the first card being added.](img/first-card.png)
 
@@ -192,7 +222,11 @@ git clone https://github.com/OUTLIERS-ai/outliers-ws-03-projectforge; cd outlier
 
 ## Using it day to day
 
-**Adding work on the board.** "+ Project" sits at the top of the screen. "+ Add card" sits at the foot of each column, with a project picker and an owner picker. The owner picker only lists you and your real agents, so a typo cannot create a made-up agent.
+**Adding work on the board.** "+ Project" sits at the top of the screen. "+ Add card" sits at the **top** of each column, under its heading, with a project picker and an owner picker, each labelled. The owner picker only lists you and your real agents, so a typo cannot create a made-up agent.
+
+**Finding a card.** The search box filters every tab. If nothing matches what you typed, the board says so and gives you a "Clear the search" button, instead of showing 7 empty columns that look like an empty board.
+
+![A search for "zzzz" on a board with 10 open cards. Before this fix the same search gave 7 empty columns and no message.](img/search-no-hits.png)
 
 **Adding work from the terminal.** `forge.py` commands run inside the ProjectForge folder; in a new terminal, type `cd outliers-ws-03-projectforge` first. Make a project first; it prints the project's id, a short code such as `pf-p-5baff3` that you use to add cards to it. Then add a card to it. Every command that changes the board ends with `--actor` and your board name (the answer to question 6; `you` if you kept the default):
 
@@ -237,11 +271,21 @@ On a Mac the path is `~/.claude/projectforge/forge_agent.py`. The full list of i
 
 **Your column.** Check Awaiting You once a day. Every card there is waiting for your decision or sign-off. Click the "awaiting you" number at the top to jump to it.
 
-**Refusals and escalations.** The "refused today" number at the top counts the changes the board refused. Click it, or "show refusals only" in Activity, to see who tried what. An agent that needs you can run `forge_agent.py escalate`; that shows in red as NEEDS A PERSON and does not move the card.
+**Refusals and escalations.** The "refused today" number at the top counts the changes the board refused. Click it, or "show refusals only" in Activity, to see who tried what. The wording you see on the board is the plain one; the agent's own terminal gets the longer version naming the options it has to fill in.
+
+**When an agent asks for a person.** An agent that cannot finish without you runs `forge_agent.py escalate`. That leaves 3 marks you cannot miss: a red **NEEDS YOU** label on the card, a **needs you** count in the header, and the card moves into **Awaiting You**, your own column. The health check also raises an alert for it, so it is still there tomorrow after the Activity list has scrolled past it.
+
+![An agent has asked for a person: the red NEEDS YOU label on the card, "1 NEEDS YOU" in the header, the card sitting in Awaiting You, and the matching alert on the right with a link straight to the card.](img/needs-you.png)
 
 ![Activity showing only refusals: which agent, what it tried, and why it was refused.](img/refused-activity.png)
 
-**Health check.** The board runs a no-AI check when it starts and every 10 minutes: overdue, due soon (2 days), untouched for 5 days, stuck in Blocked (3 days), no owner, and too many cards in a column. The cards it finds are listed under Alerts on the right (with the time of the last check) and at the top of the summary note. It also sends a card back to Ready if its agent never reported within 45 minutes, and archives Done cards after 14 days. `python forge.py hygiene` runs the same check once and prints the cards.
+**Health check.** The board runs a no-AI check when it starts and every 10 minutes: overdue, due soon (2 days), untouched for 5 days, stuck in Blocked (3 days), no owner, too many cards in a column, and any card where an agent has asked for a person. The cards it finds are listed under Alerts on the right (with the time of the last check) and at the top of the summary note. It also sends a card back to Ready if its agent never reported within 45 minutes, and archives Done cards after 14 days. `python forge.py hygiene` runs the same check once and prints the cards.
+
+Each alert names its card, and under it sits an "Open this card" link that takes you straight there. "Hide for now" puts an alert away; the next check puts it back if it is still true.
+
+**If the health check ever stops**, the board says so in red where the time of the last check normally sits, and raises an alert naming the reason. It used to print 1 line into the terminal window you had minimised, so the check could be dead for days while the board looked fine.
+
+**The board refreshes every 10 seconds** and pauses only while you are typing: in a box, or in a half-filled "+ Add card" form. When it pauses it says so in an amber line under the header, with the time it last looked. Having a card open no longer stops it: the figures at the top stay right while you read a card.
 
 **Letting it run by itself (optional).** `python tools/run_if_ready.py` checks first and starts Claude only if a card is ready. It prints 1 line and writes what happened to `data/run_if_ready.log`, not the screen; 1 run can take up to 45 minutes. It starts Claude with a Claude Code setting called dontAsk, which refuses anything not on an approved list instead of stopping to ask a question: nobody is there to answer questions, so it may use exactly the board commands below, plus whatever you have already allowed in your own Claude Code settings, and nothing else. This was tested live on 2026-09-22: the board commands ran and every other command was refused.
 
@@ -338,7 +382,7 @@ The whole download at a glance, then every command. Anything that changes the bo
 | `add-project "Title" --dept content [--summary "..."] --actor you` | A new project; prints its id. |
 | `add-task <project-id> "Title" [--status ready] [--agent writer-bot] [--notes "..."] [--context <link or file>] [--crm-person "People/Dan Pike.md"] --actor you` | A new card. The 8 columns are backlog, ready, in_progress, blocked, review, awaiting_you, done, tracking. |
 | `move <card> <column> --actor you` | Moves a card. |
-| `set <card> [--due 2026-10-02] [--priority low/normal/high/urgent] [--agent <name>] [--crm-person ...] --actor you` | Changes a card's details. |
+| `set <card> [--due 2026-10-02] [--priority low/normal/high/urgent] [--agent <name>] [--crm-person ...] --actor you` | Changes a card's details. A due date must be written as YYYY-MM-DD; anything else is refused and nothing changes. `--due ""` clears it. |
 | `archive <card> [--restore] --actor you` | Hides a card, or brings it back. Nothing is ever deleted. |
 | `comment <card> "text" --actor you` | Adds a comment. |
 | `pass <card> <agent> "summary" [--result ...] [--outputs a.md,b.md] [--next "..."] [--intent ...]` | Saves a work report for an agent. Never moves the card. |
@@ -348,7 +392,7 @@ The whole download at a glance, then every command. Anything that changes the bo
 | `show <card> [--json]` | A card in full. |
 | `metrics [--days 7]` | Cards finished, cards moved back to an earlier column, how often you stepped in. |
 | `hygiene` | Runs the health check once and lists the cards it found. |
-| `mirror` | Rewrites the summary note now. |
+| `mirror` | Rewrites the summary note now. If the folder it should go in is not there, it refuses and names the folder rather than making one. |
 | `cards [--validate]` | Lists or checks the per-agent limit files. |
 | `intake`, `dispatch <card>`, `commit <card> <agent> "summary" --result ... [--key]` with `--actor orchestrator` | The orchestrator's own steps: intake moves owned Backlog cards to Ready, dispatch takes a card, commit saves the report and moves the card. `--key` stops the same report being saved twice. |
 
@@ -363,7 +407,7 @@ Results are completed, progressed, blocked, failed and needs-review. `--intent` 
 | `pass --card --agent --summary [--result] [--outputs] [--next] [--key]` | Any agent. Saves a work report. |
 | `handoff --card --from --to --done --decisions --state --next-first --warnings [--context]` | Any agent. Makes the receiver the owner. |
 | `comment --card --agent --text` | Any agent. |
-| `escalate --card --agent --note` | Any agent. Shows in red as NEEDS A PERSON; does not move the card. |
+| `escalate --card --agent --note` | Any agent. Marks the card NEEDS YOU, counts it in the header, moves it into Awaiting You and raises an alert. |
 | `open --agent <manager> --dept --project --title [--assignee] [--status backlog/ready] [--context] [--notes] [--crm-person]` | Managers only. A new project name makes a new project. |
 
 **Other scripts.** `install.py` also takes every answer as a setting, for scripts: `--yes`, `--second-brain`, `--crm`, `--agents-dir`, `--managers`, `--outward`, `--name`, `--commands`, `--summary-note`, `--port`, and `--uninstall`. `tools/run_if_ready.py [--dry-run]` checks and starts Claude only if needed. `tools/schedule.py --print / --install [--every 60] / --remove` shows, switches on or switches off the optional schedule (a hidden Windows task, or an entry in launchd, the Mac's built-in scheduler). `tools/demo_board.py --out demo [--serve] [--port 3029]` builds the demo. `adapters/forge_client.py` lets your own programs send cards to the board over its web address.
@@ -386,7 +430,7 @@ Results are completed, progressed, blocked, failed and needs-review. `--intent` 
 
 **The web address, for your own programs.** The board answers on `http://127.0.0.1:3020/api/...`. Reads: `state`, `events`, `agents`, `alerts`, `metrics`, `cards`, `next`, `waiting`, `task/<card>`. Writes (in JSON, the standard text format programs use to swap data; only from your own computer, and each must name an `actor`): `open`, `pass`, `handoff`, `federate` (another program sending cards in), `task/add`, `task/move`, `task/update`, `task/tags`, `task/checklist`, `task/comment`, `task/archive`, `task/reorder`, `project/add`, `project/update`, `alert/dismiss`, and the orchestrator's `intake`, `dispatch`, `commit`.
 
-**Also in the folder:** `README.md`, `WHAT-I-STOLE.md` (the ideas this borrows and their licences), `LICENSE` (MIT: anyone may use and change the code), `guide/` (this guide and its pictures), and `tests/` (83 automatic checks that the board works: `python -m pytest -q`).
+**Also in the folder:** `README.md`, `WHAT-I-STOLE.md` (the ideas this borrows and their licences), `LICENSE` (MIT: anyone may use and change the code), `guide/` (this guide and its pictures), and `tests/` (115 automatic checks that the board works: `python -m pytest -q`; they never need a particular port to be free, so they pass while the board is running).
 
 ## When it goes wrong
 
@@ -407,6 +451,14 @@ These are the real faults from Ashley's build and from testing this download, wi
 | The orchestrator reports "bad json". | In the original, an em dash typed into a command's text broke the request. | `/forge-run` now uses `forge.py` commands instead of web requests. Still type hyphens, not em dashes. |
 | An agent says the board was not found. | `forge_agent.json` is missing next to the tool. | Re-run `python install.py`. Or set an environment variable (a named setting your computer passes to programs) called `FORGE_DIR` to the download folder. |
 | The unattended run logs "claude not found" (Mac). | A scheduled job on a Mac does not get the list of folders your terminal searches for programs, so it cannot find `claude`. | `python tools/schedule.py --install` saves Claude's full path and adds its folder to the schedule. |
+| "a due date must be written as YYYY-MM-DD" | You typed a date in words or in day/month/year order. Before 2026-09-23 the board took it and the health check then died on that card every time. | Write it as `--due 2026-10-02`. `--due ""` clears a due date. The web board's date box already gets this right. |
+| An alert saying a card's due date cannot be read. | A bad due date saved before this fix, or put there by one of your own scripts. | Open the card and set the date again as YYYY-MM-DD, or clear it. Until you do, that card alone is skipped; every other card is still checked. |
+| "THE CHECK HAS STOPPED", in red where the time of the last check sits. | The health check hit something it could not read. The board still serves; the 4 jobs the check does have stopped. | Read the alert beside it: it names the reason. Run `python forge.py hygiene` in a terminal to see the same message in full. |
+| A wall of error text from every command, mentioning JSON. | `config.json` was edited by hand and broken: usually a comma after the last setting. | The message now names the line. Fix that line and save as plain UTF-8, or delete the file and run `python install.py` again. A file saved by Notepad as "UTF-8 with BOM" is read without complaint. |
+| The CRM reader stops with an error about a byte it cannot decode. | Fixed on 2026-09-23. `Today.md` had been saved in the old Windows text format (Windows-1252), which any older Windows tool may still write. | Nothing crashes now. An accent or a pound sign in a name may come back wrong on the card, for example "Renee Cafe" as "Ren?e Caf?"; save `Today.md` as UTF-8 to fix the spelling. |
+| The uninstall says it could not move a folder aside. | Something has a file in `.claude\projectforge` open: an editor, a terminal sitting in that folder, or a running agent. | Close it and run `python install.py --uninstall` again. Nothing was changed, so it is safe to repeat. |
+| "the summary note was not written: the folder ... is not there". | Your vault has been renamed or moved, or a OneDrive vault has not synced yet. | Check the folder exists, then run `python forge.py mirror`. The board never makes a folder inside your vault, because it used to make an empty folder and report success. |
+| A card carries a red NEEDS YOU label. | An agent ran `escalate`: it cannot finish without a person. The card has moved into Awaiting You. | Read the note in the Activity list or on the card, do the part only you can do, then move the card on. Moving it out of Awaiting You takes the label off. |
 
 ![What a second copy of the board says now. Before the fix, on Windows, it started silently on the same port.](img/port-in-use.png)
 

@@ -131,6 +131,12 @@ def build(out: Path):
                   "client has not replied in 6 days.", result="blocked",
                   next_step="You may need to phone them", actor=O)
 
+    # an agent asking for a person: the card gets a red NEEDS YOU chip, the
+    # header counts it, and the card joins Awaiting You
+    s.escalate(t6, "The client has not replied in 6 days. Please ring "
+                   "Oakfield Joinery and ask for the receipts.",
+               actor="inbox-helper")
+
     s.set_checklist(t3, [{"text": "Subject line", "done": True},
                          {"text": "Body", "done": False},
                          {"text": "Booking link", "done": False}], actor=Y)

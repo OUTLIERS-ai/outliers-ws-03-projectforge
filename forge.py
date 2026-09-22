@@ -40,7 +40,7 @@ sys.path.insert(0, str(BASE))
 
 from engine import cards as cards_mod  # noqa: E402
 from engine import mirror, server  # noqa: E402
-from engine.config import load_config  # noqa: E402
+from engine.config import ConfigError, load_config  # noqa: E402
 from engine.db import (PASS_RESULTS, PERFORMATIVES, STATUSES,  # noqa: E402
                        NotAllowed, open_store)
 
@@ -157,7 +157,11 @@ def build_parser(cfg):
 
 
 def main(argv=None):
-    cfg = load_config()
+    try:
+        cfg = load_config()
+    except ConfigError as e:
+        print(e)
+        return 1
     args = build_parser(cfg).parse_args(argv)
     store = open_store(cfg)
 
@@ -184,7 +188,12 @@ def run(args, cfg, store, remirror):
     if c == "serve":
         return server.serve(store, cfg, BASE, port=args.port)
     elif c == "mirror":
-        print("\n".join(mirror.write_mirrors(store, cfg, BASE)) or
+        try:
+            written = mirror.write_mirrors(store, cfg, BASE)
+        except mirror.VaultMissing as e:
+            print(f"refused: {e}")
+            return 2
+        print("\n".join(written) or
               "no summary_note set in config.json - nothing written")
     elif c == "list":
         state = store.state()
@@ -211,7 +220,16 @@ def run(args, cfg, store, remirror):
                   f"{p['status']}]  {n} card(s)")
     elif c == "hygiene":
         from engine import hygiene
-        r = hygiene.run(store, cfg, BASE)
+        try:
+            r = hygiene.run(store, cfg, BASE)
+        except Exception as e:  # noqa: BLE001 - say it, never swallow it
+            print(f"THE HEALTH CHECK FAILED: {type(e).__name__}: {e}")
+            print("Nothing on the board was changed. Until this is fixed the "
+                  "board is not watching for overdue, stale or stuck cards.")
+            store.raise_alert("health-check", "board",
+                              server.HEALTH_FAILED.format(
+                                  why=f"{type(e).__name__}: {e}"), "alert")
+            return 2
         alerts = store.open_alerts()
         titles = {t["id"]: t["title"] for t in store.state()["tasks"]}
         print(f"checked {r['checked']} card(s): {r['open_alerts']} alert(s), "

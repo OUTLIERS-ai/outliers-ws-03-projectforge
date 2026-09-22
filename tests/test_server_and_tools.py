@@ -169,6 +169,7 @@ def test_summary_note_written(store, tmp_path):
     from engine import mirror
     new_card(store, status="awaiting_you", owner=HUMAN)
     note = tmp_path / "vault" / "ProjectForge Board.md"
+    note.parent.mkdir()   # the board never makes a folder in your vault
     out = mirror.write_mirrors(store, {"summary_note": str(note),
                                        "departments": []})
     assert out == [str(note)]

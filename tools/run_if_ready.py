@@ -35,7 +35,7 @@ BASE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE))
 
 from engine import cards as cards_mod  # noqa: E402
-from engine.config import load_config  # noqa: E402
+from engine.config import ConfigError, load_config  # noqa: E402
 from engine.db import open_store  # noqa: E402
 
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -115,7 +115,11 @@ def main(argv=None):
     ap.add_argument("--dry-run", action="store_true",
                     help="count only; never start Claude")
     a = ap.parse_args(argv)
-    cfg = load_config()
+    try:
+        cfg = load_config()
+    except ConfigError as e:
+        print(e)
+        return 1
     w = count_work(cfg)
     if w["total"] == 0:
         why = ("in-progress limit reached" if w["at_cap"]

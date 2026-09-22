@@ -32,7 +32,10 @@ sys.path.insert(0, str(BASE))
 
 MARKER = "installed by outliers-ws-03-projectforge"
 
-MIN_PY = (3, 9)
+# 3.11 or newer. 3.9 stopped getting security fixes on 2025-10-31 and 3.10
+# stops on 2026-10-31, so naming either would send a member to a runtime
+# with no security fixes.
+MIN_PY = (3, 11)
 
 
 def say(msg=""):
@@ -92,7 +95,10 @@ def read_agents(folders):
                 continue
             name = md.stem
             try:
-                text = md.read_text(encoding="utf-8", errors="replace")
+                # utf-8-sig: a file saved by Notepad as "UTF-8 with BOM"
+                # starts with a mark, and the front matter below would never
+                # be found, so the agent was filed under its file name
+                text = md.read_text(encoding="utf-8-sig", errors="replace")
             except OSError:
                 continue
             if text.startswith("---"):
@@ -190,7 +196,8 @@ Agent work is recorded on the ProjectForge board. The tool is
   may also `open` cards. Only the orchestrator (/forge-run) moves cards.
 - A handover also makes the receiving agent the card's owner.
 - Need a person? `python "{a}" escalate --card <id> --agent <name> --note "..."`
-  (shown in red on the board; the card does not move).
+  (marks the card NEEDS YOU, counts it in the header and moves it into
+  Awaiting You, your own column).
 - Agents use only this tool, never forge.py.
 
 ## Paste into each worker agent's file
@@ -208,16 +215,26 @@ def interview(args, ask, existing):
     vaults = find_vaults()
     sb_default = args.second_brain or existing.get("second_brain") or \
         str(guess_second_brain(vaults) or "")
-    say("\n1. Your second brain vault (the Obsidian folder your agents work in).")
-    sb = ask.ask("   Path", sb_default)
-    if not sb or not Path(sb).is_dir():
-        return None, f"Second brain folder not found: {sb or '(blank)'}"
-    sb = str(Path(sb).resolve())
-    if not (Path(sb) / ".obsidian").is_dir():
-        say("   (no .obsidian folder inside - fine if it is still a vault)")
+    say("\n1. Your second brain vault (the Obsidian folder your agents work "
+        "in).\n   Type 'none' if you have not got one: the board works "
+        "without it.")
+    sb = ask.ask("   Path", sb_default or "none")
+    if sb.strip().lower() in ("none", ""):
+        sb = ""
+        say("   No vault. The board, the cards and the agents' tool all "
+            "work the same; there is just no summary note in a vault.")
+    elif not Path(sb).is_dir():
+        return None, (f"Second brain folder not found: {sb}. Check the path, "
+                      f"or type 'none' if you have not got a vault")
+    else:
+        sb = str(Path(sb).resolve())
+        if not (Path(sb) / ".obsidian").is_dir():
+            say("   (no .obsidian folder inside - fine if it is still a "
+                "vault)")
 
     crm_default = args.crm if args.crm is not None else \
-        existing.get("crm_vault") or str(guess_crm(vaults, Path(sb)) or "")
+        existing.get("crm_vault") or \
+        str(guess_crm(vaults, Path(sb) if sb else None) or "")
     say("\n2. Your CRM vault (type 'none' if you do not have one).")
     crm = ask.ask("   Path", crm_default or "none")
     if crm.lower() == "none":
@@ -226,9 +243,10 @@ def interview(args, ask, existing):
         return None, f"CRM folder not found: {crm}"
     crm = str(Path(crm).resolve()) if crm else ""
 
+    vault_agents = Path(sb) / ".claude" / "agents" if sb else None
     ad_default = args.agents_dir or existing.get("agents_dirs") or \
-        [str(ch / "agents")] + ([str(Path(sb) / ".claude" / "agents")]
-                                if (Path(sb) / ".claude" / "agents").is_dir()
+        [str(ch / "agents")] + ([str(vault_agents)]
+                                if vault_agents and vault_agents.is_dir()
                                 else [])
     say("\n3. Your agents folder(s). Separate several with ;")
     ad = ask.ask("   Folders", ";".join(ad_default))
@@ -265,28 +283,42 @@ def interview(args, ask, existing):
     human = ask.ask("   Your name on the board",
                     args.name or existing.get("human") or "you")
 
-    say("\n7. Where should the /forge-run command go?\n   user = every Claude "
-        "Code session on this computer;\n   vault = only sessions opened in "
-        "your second brain.")
-    where = (args.commands or ask.ask("   user or vault",
-                                      existing.get("_commands_to", "user"))
-             ).lower()
-    if where not in ("user", "vault"):
-        return None, "answer user or vault"
+    if sb:
+        say("\n7. Where should the /forge-run command go?\n   user = every "
+            "Claude Code session on this computer;\n   vault = only sessions "
+            "opened in your second brain.")
+        if args.commands:
+            say(f"   user or vault: {args.commands}")
+            where = args.commands.lower()
+        else:
+            where = ask.ask("   user or vault",
+                            existing.get("_commands_to", "user")).lower()
+        if where not in ("user", "vault"):
+            return None, "answer user or vault"
+    else:
+        say("\n7. The /forge-run command goes to every Claude Code session "
+            "on this computer\n   (there is no vault to put it in).")
+        where = "user"
     cmd_dir = (ch / "commands") if where == "user" else \
         (Path(sb) / ".claude" / "commands")
 
-    say("\n8. A board summary note in your second brain (a markdown copy of "
-        "the board,\n   rewritten after every change). Press Enter to write "
-        "it at the path shown,\n   or type 'none' for no note.")
-    note_default = args.summary_note if args.summary_note is not None else \
-        (existing.get("summary_note") or
-         str(Path(sb) / "ProjectForge Board.md"))
-    note = ask.ask("   Note path", note_default or "none")
-    if note.lower() == "none":
+    if sb:
+        say("\n8. A board summary note in your second brain (a markdown copy "
+            "of the board,\n   rewritten after every change). Press Enter to "
+            "write it at the path shown,\n   or type 'none' for no note.")
+        note_default = args.summary_note \
+            if args.summary_note is not None else \
+            (existing.get("summary_note") or
+             str(Path(sb) / "ProjectForge Board.md"))
+        note = ask.ask("   Note path", note_default or "none")
+        if note.lower() == "none":
+            note = ""
+        if note:
+            note = str(Path(note).resolve())
+    else:
+        say("\n8. No summary note: that note lives in a vault, and you have "
+            "not got one.")
         note = ""
-    if note:
-        note = str(Path(note).resolve())
 
     port = int(args.port or existing.get("port") or 3020)
     answers = {
@@ -311,7 +343,13 @@ def do_install(args):
     cpath = config_path()
     existing = {}
     if cpath.is_file():
-        existing = json.loads(cpath.read_text(encoding="utf-8"))
+        from engine.config import ConfigError, read_json_file
+        try:
+            existing = read_json_file(cpath)
+        except ConfigError as e:
+            say(f"\nStopped: {e}")
+            say("Nothing changed.")
+            return 1
     answers, err = interview(args, ask, existing)
     if err:
         say(f"\nStopped: {err}. Nothing changed.")
@@ -384,9 +422,11 @@ def do_install(args):
         st = open_store(cfg)
         try:
             mirror.write_mirrors(st, cfg, BASE)
+            changes.append(f"summary note written: {answers['summary_note']}")
+        except OSError as e:
+            changes.append(f"summary note NOT written - {e}")
         finally:
             st.close()
-        changes.append(f"summary note written: {answers['summary_note']}")
 
     say("")
     if not changes:
@@ -408,24 +448,70 @@ Nothing runs on a timer. To add the optional schedule later:
     return 0
 
 
+def removed_stamp():
+    """Down to the millisecond. A stamp counting whole seconds meant 2
+    uninstalls inside the same second landed on the same name and the second
+    one crashed half way."""
+    return time.strftime("%Y%m%d-%H%M%S") + f"-{int(time.time() * 1000) % 1000:03d}"
+
+
+def move_aside(path, stamp):
+    """Move a file or folder out of the way, never onto an earlier one."""
+    target = path.with_name(f"{path.name}.removed-{stamp}")
+    n = 2
+    while target.exists():
+        target = path.with_name(f"{path.name}.removed-{stamp}-{n}")
+        n += 1
+    os.replace(path, target)
+    return target
+
+
 def do_uninstall(args):
-    from engine.config import config_path, load_config
+    from engine.config import ConfigError, config_path, load_config
     ask = Asker(args.yes)
     cpath = config_path()
     if not cpath.is_file():
         say("Not installed (no config.json). Nothing changed.")
         return 0
-    cfg = load_config()
+    try:
+        cfg = load_config()
+    except ConfigError as e:
+        say(f"Stopped: {e}")
+        say("Nothing changed.")
+        return 1
     if not ask.confirm("Remove the /forge-run command and the agents' tool? "
                        "Your board data and config stay.", default=False):
         say("Nothing changed.")
         return 1
-    stamp = time.strftime("%Y%m%d-%H%M%S")
+    stamp = removed_stamp()
+    # the agents' tool FIRST, because moving a folder is the step that can
+    # fail (Windows refuses while any file inside is open). Doing it first
+    # means a failure leaves everything as it was, and running the uninstall
+    # again once the file is closed finishes the job.
+    adir = Path(cfg.get("adapter_dir", ""))
+    if adir.is_dir() and (adir / "forge_agent.json").is_file():
+        try:
+            moved = move_aside(adir, stamp)
+        except OSError as e:
+            say(f"\nStopped: {adir} could not be moved aside "
+                f"({e.strerror or e}).")
+            say("Something is using a file in that folder. Close your editor, "
+                "close any terminal sitting in that folder, and stop any "
+                "agent that is running, then run this again.")
+            say("Nothing was changed.")
+            return 1
+        say(f"  moved the agents' tool aside: {moved}")
     cmd = Path(cfg.get("command_path", ""))
     if cmd.is_file():
         body = cmd.read_text(encoding="utf-8", errors="replace")
         if MARKER in body:
-            os.replace(cmd, cmd.with_name(f"{cmd.name}.removed-{stamp}"))
+            try:
+                move_aside(cmd, stamp)
+            except OSError as e:
+                say(f"\nStopped: {cmd} could not be moved aside "
+                    f"({e.strerror or e}). Close whatever has it open and "
+                    f"run this again.")
+                return 1
             baks = [b for b in sorted(cmd.parent.glob(f"{cmd.name}.bak-*"))
                     if MARKER not in b.read_text(encoding="utf-8",
                                                   errors="replace")]
@@ -435,10 +521,6 @@ def do_uninstall(args):
             say(f"  removed /forge-run ({cmd})")
         else:
             say(f"  left {cmd} alone - it is not the one we installed")
-    adir = Path(cfg.get("adapter_dir", ""))
-    if adir.is_dir() and (adir / "forge_agent.json").is_file():
-        os.replace(adir, adir.with_name(f"{adir.name}.removed-{stamp}"))
-        say(f"  moved the agents' tool aside: {adir}.removed-{stamp}")
     if (cfg.get("schedule") or {}).get("installed"):
         import subprocess
         subprocess.run([sys.executable, str(BASE / "tools" / "schedule.py"),

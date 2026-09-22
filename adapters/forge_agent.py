@@ -62,7 +62,9 @@ def find_forge_dir():
     j = HERE / "forge_agent.json"
     if j.is_file():
         try:
-            d = json.loads(j.read_text(encoding="utf-8")).get("forge_dir")
+            d = json.loads(
+                j.read_text(encoding="utf-8-sig",
+                            errors="replace")).get("forge_dir")
             if d:
                 return Path(d)
         except ValueError:
@@ -79,9 +81,13 @@ def get_store():
               "the folder that holds forge.py.")
         sys.exit(4)
     sys.path.insert(0, str(fd))
-    from engine.config import load_config  # noqa: E402
+    from engine.config import ConfigError, load_config  # noqa: E402
     from engine.db import open_store  # noqa: E402
-    cfg = load_config()
+    try:
+        cfg = load_config()
+    except ConfigError as e:
+        print(e)
+        sys.exit(1)
     return open_store(cfg), cfg, fd
 
 

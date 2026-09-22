@@ -24,7 +24,8 @@ from pathlib import Path
 BASE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE))
 
-from engine.config import atomic_write, config_path, load_config  # noqa: E402
+from engine.config import (ConfigError, atomic_write,  # noqa: E402
+                           config_path, load_config, read_json_file)
 
 TASK = "ProjectForge-RunIfReady"
 LABEL = "ai.outliers.projectforge.runifready"
@@ -92,7 +93,7 @@ def set_installed(flag, every):
     p = config_path()
     if not p.is_file():
         return
-    data = json.loads(p.read_text(encoding="utf-8"))
+    data = read_json_file(p)
     sch = data.setdefault("schedule", {})
     sch["installed"] = flag
     sch["every_min"] = every
@@ -113,7 +114,11 @@ def main(argv=None):
     ap.add_argument("--every", type=int, default=None,
                     help="minutes between checks (default 60)")
     a = ap.parse_args(argv)
-    cfg = load_config()
+    try:
+        cfg = load_config()
+    except ConfigError as e:
+        print(e)
+        return 1
     every = a.every or (cfg.get("schedule") or {}).get("every_min") or 60
     if every < 5:
         print("Refused: pick 5 minutes or more.")

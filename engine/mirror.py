@@ -30,6 +30,15 @@ tags: [projectforge, board, auto-generated]
 """
 
 
+class VaultMissing(OSError):
+    """The folder the summary note should go in is not there.
+
+    The board never makes a folder inside your vault. A vault you renamed,
+    or a OneDrive vault that has not synced yet, used to get a brand new
+    empty folder with one note in it, while `mirror` reported success.
+    """
+
+
 def crm_link(rel, config):
     """A link that opens the person's note in the CRM vault. The summary
     note lives in your second brain, so a [[wiki link]] would look in the
@@ -107,6 +116,13 @@ def write_mirrors(store, config, base_dir=None):
     target = (config.get("summary_note") or "").strip()
     if not target:
         return []
+    folder = Path(target).parent
+    if not folder.is_dir():
+        raise VaultMissing(
+            f"the summary note was not written: the folder {folder} is not "
+            f"there. The board never makes a folder in your vault. Check the "
+            f"vault is where you think it is - a OneDrive vault may not have "
+            f"synced yet - then run: python forge.py mirror")
     state = store.state()
     state["alerts"] = store.open_alerts()
     text = NOTE_HEADER.format(date=time.strftime("%Y-%m-%d")) + \

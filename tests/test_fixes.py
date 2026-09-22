@@ -328,6 +328,7 @@ def test_summary_note_links_open_the_crm_vault(store, tmp_path):
     store.add_task(pid, "Call Dan", status="awaiting_you", actor=HUMAN,
                    assignee_agent=HUMAN, crm_person="People/Dan Pike.md")
     note = tmp_path / "v" / "Board.md"
+    note.parent.mkdir()   # the board never makes a folder in your vault
     mirror.write_mirrors(store, {"summary_note": str(note),
                                  "crm_vault": "D:/CRM", "departments": []})
     text = note.read_text(encoding="utf-8")

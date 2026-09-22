@@ -82,10 +82,12 @@ h1 { font-size: 19px; font-weight: 800; letter-spacing: 0.3px; }
 
 /* ---------- alerts panel ---------- */
 .alert-item {
-  border-radius: 10px; display: flex; gap: 6px;
+  border-radius: 10px; display: flex; flex-direction: column; gap: 6px;
   font-size: 12px; line-height: 1.45; margin-bottom: 7px;
-  padding: 8px 10px; cursor: pointer;
+  padding: 9px 11px; cursor: pointer;
 }
+.al-foot { display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; }
 .alert-item.warn {
   background: rgba(255, 176, 46, 0.07);
   border: 1px solid rgba(255, 176, 46, 0.25);
@@ -97,14 +99,14 @@ h1 { font-size: 19px; font-weight: 800; letter-spacing: 0.3px; }
 .al-kind {
   font-family: 'Cascadia Mono', Consolas, monospace;
   font-size: 10px; font-weight: 700; text-transform: uppercase;
-  letter-spacing: 0.8px;
+  letter-spacing: 0.8px; white-space: nowrap; margin-bottom: 2px;
 }
 .alert-item.warn .al-kind { color: var(--warn); }
 .alert-item.alert .al-kind { color: #ff6b6b; }
 .al-body { flex: 1; }
 .al-x {
-  align-self: flex-start; background: none; box-shadow: none;
-  color: var(--dim); font-size: 14px; padding: 0 3px;
+  background: none; box-shadow: none; color: var(--dim);
+  padding: 0 3px; margin-left: auto;
 }
 .al-x:hover { color: #ff6b6b; transform: none; box-shadow: none; }
 
@@ -188,21 +190,44 @@ main { display: flex; gap: 0; }
 .src { font-family: 'Cascadia Mono', Consolas, monospace; font-size: 9.5px; color: var(--dim); }
 
 /* ---------- activity ---------- */
+/* The panel scrolls INSIDE itself. With no height of its own, 40 events
+   made the whole page 3,634 px tall on a 768-tall screen, and every
+   "+ Add card" button went with it. */
 #activity {
   width: 270px; flex-shrink: 0;
   border-left: 1px solid var(--panel-border);
   padding: 22px 18px;
   background: rgba(255, 255, 255, 0.012);
+  position: sticky; top: calc(var(--hdr, 68px) + var(--jump, 0px));
+  align-self: flex-start;
+  max-height: calc(100vh - var(--hdr, 68px) - var(--jump, 0px));
+  overflow-y: auto;
 }
+#activity.folded { display: none; }
+#activity-reopen {
+  position: fixed; right: 0; top: 50%; transform: translateY(-50%);
+  writing-mode: vertical-rl; background: var(--panel); box-shadow: none;
+  border: 1px solid var(--panel-border); border-right: none;
+  border-radius: 10px 0 0 10px; color: var(--dim);
+  font-size: 11px; letter-spacing: 1.4px; text-transform: uppercase;
+  padding: 14px 5px; cursor: pointer; z-index: 15;
+}
+#activity-reopen:hover { color: var(--accent); transform: translateY(-50%); }
+#activity-close {
+  background: none; box-shadow: none; color: var(--dim);
+  font-size: 16px; line-height: 1; padding: 0 4px; margin-bottom: 14px;
+}
+#activity-close:hover { color: var(--accent); transform: none; box-shadow: none; }
+#refused-filter { margin: -6px 0 10px; }
 #activity h2 {
   font-size: 11px; text-transform: uppercase; letter-spacing: 1.6px;
   color: var(--dim); margin-bottom: 14px;
 }
 .ev { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
 .ev .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); margin-top: 6px; flex-shrink: 0; }
-.ev .dot.moved { background: var(--ok); }
-.ev .dot.handoff { background: #b06bff; }
-.ev .body { font-size: 12px; line-height: 1.45; color: #c6cad6; }
+.ev .body { font-size: 12px; line-height: 1.45; color: #c6cad6;
+  overflow-wrap: anywhere; }
+.ev-proj { color: var(--dim); }
 .ev .ts { font-family: 'Cascadia Mono', Consolas, monospace; font-size: 10px; color: var(--dim); }
 
 /* ---------- modal ---------- */
@@ -445,6 +470,68 @@ button.danger:hover { background: rgba(255, 107, 107, 0.18); color: #ff6b6b; box
 ::-webkit-scrollbar { height: 9px; width: 9px; }
 ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.09); border-radius: 99px; }
 ::-webkit-scrollbar-track { background: transparent; }
+
+/* the board's own bar is the one you have to SEE: 9 per cent white on a
+   near-black board measured 0 px of layout height and was invisible */
+#board::-webkit-scrollbar { height: 14px; }
+#board::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: 99px; border: 3px solid transparent; background-clip: padding-box;
+}
+#board::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+#board::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05); border-radius: 99px;
+}
+#board { scrollbar-color: var(--accent) rgba(255,255,255,.06); scrollbar-width: auto; }
+
+/* the jump bar: named buttons for every column, so the ones off the right
+   edge (DONE, on a 1366-wide laptop) are always 1 click away */
+#col-jump {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 7px 24px; border-bottom: 1px solid var(--panel-border);
+  background: rgba(255, 255, 255, 0.02);
+  position: sticky; top: var(--hdr, 68px); z-index: 12;
+}
+#col-jump.hidden { display: none; }
+.cj-label { font-size: 11.5px; color: var(--warn); font-weight: 600; }
+#col-jump button {
+  font-size: 11.5px; font-weight: 600; color: var(--dim);
+  background: var(--panel); border: 1px solid var(--panel-border);
+  border-radius: 999px; padding: 4px 11px; cursor: pointer;
+}
+#col-jump button:hover { color: var(--text); border-color: var(--accent); }
+
+/* the line that says the board has paused, instead of going quiet */
+#refresh-state {
+  padding: 6px 24px; font-size: 12px; color: var(--warn);
+  background: rgba(255, 176, 46, 0.08);
+  border-bottom: 1px solid rgba(255, 176, 46, 0.25);
+}
+#refresh-state.hidden { display: none; }
+
+/* an agent has asked for a person on this card */
+.needs-you {
+  display: inline-block; margin-bottom: 7px;
+  font-size: 9.5px; font-weight: 800; letter-spacing: 1.2px;
+  color: #fff; background: #d92d20; border-radius: 5px; padding: 2px 7px;
+}
+.stat.needs span { color: var(--dim); }
+.stat.needs.lit span { color: #ff6b6b; }
+.last-check.broken { color: #ff6b6b; font-weight: 700; }
+.al-open { font-size: 11.5px; color: var(--accent); text-decoration: underline; }
+.al-x {
+  font-size: 10.5px !important; white-space: nowrap;
+  text-transform: uppercase; letter-spacing: 0.6px;
+}
+.no-hits {
+  padding: 26px 10px; font-size: 15px; color: var(--text);
+  display: flex; align-items: center; align-self: flex-start; gap: 16px;
+}
+.mini-label {
+  display: flex; flex-direction: column; gap: 3px;
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: 1px;
+  color: var(--dim);
+}
 
 /* ======================================================================
    visual polish pass — status-coloured columns, glowing badges, depth.

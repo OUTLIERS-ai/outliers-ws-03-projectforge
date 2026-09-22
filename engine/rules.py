@@ -126,22 +126,58 @@ _PLACEHOLDERS = {"", "-", "--", "n/a", "na", "tbd", "todo", "?", "...", ".",
                  "x", "see above", "handed over", "done"}
 
 
-def check_handover(fields):
-    """Return a list of problems. Empty list = a real handover."""
+def check_handover(fields, flags=True):
+    """Return a list of problems. Empty list = a real handover.
+
+    flags=True is the copy that goes back to the AGENT's own terminal: it
+    names the command-line option the agent must fill in. flags=False is the
+    copy shown to YOU on the board, where those options are noise - you will
+    never type them.
+    """
     problems = []
     for key, label in HANDOVER_FIELDS:
+        flag = f" (--{key.replace('_', '-')})" if flags else ""
         v = (fields.get(key) or "").strip()
         if not v or v.lower() in ("-", "--", "?", "...", "."):
-            problems.append(f"missing {label} (--{key.replace('_', '-')})")
+            problems.append(f"missing {label}{flag}")
         elif v.lower() in _PLACEHOLDERS:
-            problems.append(f"too thin (--{key.replace('_', '-')}): '{v}'"
-                            f" does not say {label}")
+            problems.append(f"too thin{flag}: '{v}' does not say {label}")
     dec = (fields.get("decisions") or "").strip().lower()
     if dec and dec.lower() not in _PLACEHOLDERS and dec != "none" \
             and "because" not in dec:
         problems.append("decisions must say why: include the word 'because'"
                         " (or write 'none' if no decision was made)")
     return problems
+
+
+# the short name of each field, for the copy shown on the board
+SHORT = {"done": "what was done", "decisions": "the decisions and why",
+         "state": "where it stands", "next_first": "what to do first",
+         "warnings": "warnings"}
+
+
+def _bad_fields(fields):
+    """Which of the 5 fields were not good enough, by their short names."""
+    bad = []
+    for key, _label in HANDOVER_FIELDS:
+        v = (fields.get(key) or "").strip()
+        if not v or v.lower() in _PLACEHOLDERS:
+            bad.append(SHORT[key])
+        elif key == "decisions" and v.lower() != "none" \
+                and "because" not in v.lower():
+            bad.append(SHORT[key] + " (it must say why)")
+    return bad
+
+
+def handover_refusal_for_the_board(agent, fields):
+    """The short refusal the board shows YOU: how many of the 5 fields were
+    wrong and which ones. 2 lines, not the 10-line red wall the agent's own
+    copy needs, and with none of the command-line options in it."""
+    bad = _bad_fields(fields)
+    n = len(bad)
+    return (f"{agent or 'an agent'}'s handover: {n} of the 5 fields "
+            f"{'was' if n == 1 else 'were'} not good enough "
+            f"({', '.join(bad)})")
 
 
 def handover_summary(fields):

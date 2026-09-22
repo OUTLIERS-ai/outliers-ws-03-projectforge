@@ -31,7 +31,13 @@ from .rules import NotAllowed
 
 ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
 MAX_BODY = 1_000_000
-LAST_CHECK = {"ts": "", "open_alerts": None}
+LAST_CHECK = {"ts": "", "open_alerts": None, "error": ""}
+
+HEALTH_FAILED = (
+    "The board's health check has stopped. Until this is fixed the board is "
+    "not watching for overdue, stale or stuck cards, is not sending back "
+    "cards whose agent never reported, and is not archiving old Done cards. "
+    "The reason: {why}")
 
 
 def health_check_once(store, config, base_dir):
@@ -41,6 +47,29 @@ def health_check_once(store, config, base_dir):
     LAST_CHECK["ts"] = info.get("ts") or time.strftime("%Y-%m-%d %H:%M:%S")
     LAST_CHECK["open_alerts"] = info.get("open_alerts")
     return info
+
+
+def health_check_guarded(store, config, base_dir):
+    """Run the check and, if it fails, say so ON THE BOARD.
+
+    A failure used to print one line into a terminal window the member had
+    minimised, so the 4 jobs above stopped with nothing on screen. Now it
+    raises a red alert, which the next check that works clears by itself.
+    """
+    try:
+        info = health_check_once(store, config, base_dir)
+        LAST_CHECK["error"] = ""
+        return info
+    except Exception as e:  # noqa: BLE001 - the board must keep serving
+        why = f"{type(e).__name__}: {e}"
+        LAST_CHECK["error"] = why
+        print("health check error:", why, flush=True)
+        try:
+            store.raise_alert("health-check", "board",
+                              HEALTH_FAILED.format(why=why), "alert")
+        except Exception:  # noqa: BLE001 - never hide the failure
+            pass
+        return None
 
 
 def make_handler(store, config, base_dir: Path):
@@ -100,6 +129,7 @@ def make_handler(store, config, base_dir: Path):
                 state = store.state()
                 state["config"] = public_config()
                 state["last_check"] = LAST_CHECK["ts"]
+                state["health_error"] = LAST_CHECK["error"]
                 state["refused_today"] = store.refusals_today()
                 return self._send(200, state)
             if path == "/api/events":
@@ -294,10 +324,7 @@ def start_health_loop(store, config, base_dir, every_min=None):
 
     def loop():
         while True:
-            try:
-                health_check_once(store, config, base_dir)
-            except Exception as e:  # noqa: BLE001 keep the board running
-                print("health check error:", e, flush=True)
+            health_check_guarded(store, config, base_dir)
             time.sleep(max(int(every), 1) * 60)
     t = threading.Thread(target=loop, daemon=True)
     t.start()
