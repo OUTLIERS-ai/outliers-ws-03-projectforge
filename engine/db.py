@@ -957,9 +957,9 @@ class Store:
         row = self._task_row(task_id)
         if row["status"] != "ready":
             raise ValueError(
-                f"only a card in Ready can be claimed; this one is in "
-                f"{row['status']}. It may already be claimed by another "
-                f"/forge-run.")
+                f"only a card in Ready can be taken; this one is in "
+                f"{row['status']}. Another /forge-run may already have "
+                f"taken it.")
         owner = agent or row["assignee_agent"]
         if not owner:
             raise ValueError("task has no owner agent to dispatch to")
@@ -1043,8 +1043,8 @@ class Store:
             cur = self._task_row(task_id)
             if cur["status"] not in ("in_progress", "awaiting_you"):
                 raise ValueError(
-                    f"commit is for a card the orchestrator claimed (In "
-                    f"Progress); this one is in {cur['status']}. Claim it "
+                    f"commit is for a card the orchestrator has taken (In "
+                    f"Progress); this one is in {cur['status']}. Take it "
                     f"first with dispatch.")
             logged = self.add_pass(task_id, agent, summary, outputs=outputs,
                                    result=result, next_step=next_step,

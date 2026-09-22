@@ -186,7 +186,7 @@ Agent work is recorded on the ProjectForge board. The tool is
   `python "{a}" pass --card <id> --agent <name> --summary "..." --outputs "files" --result <completed|progressed|blocked|failed|needs-review> --next "..."`.
 - Handing work to another agent needs all 5 fields or the board refuses it:
   `python "{a}" handoff --card <id> --from <me> --to <next> --done "..." --decisions "... because ..." --state "..." --next-first "..." --warnings "none"`.
-- Workers only append (pass, handoff, comment, escalate). Managers ({mgr})
+- Workers only add to a card (pass, handoff, comment, escalate). Managers ({mgr})
   may also `open` cards. Only the orchestrator (/forge-run) moves cards.
 - A handover also makes the receiving agent the card's owner.
 - Need a person? `python "{a}" escalate --card <id> --agent <name> --note "..."`
@@ -259,7 +259,7 @@ def interview(args, ask, existing):
         "Commas. No default: press Enter for none.")
     out_default = args.outward if args.outward is not None else \
         ",".join(existing.get("outward_owners", []))
-    outward = split_names(ask.ask("   Outward agents", out_default))
+    outward = split_names(ask.ask("   Agents whose work reaches other people", out_default))
 
     say("\n6. What should the board call you?")
     human = ask.ask("   Your name on the board",

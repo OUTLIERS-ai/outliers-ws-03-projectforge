@@ -102,9 +102,9 @@ class Roles:
     def hint(self, actor):
         k = self.kind(actor)
         if k == "worker":
-            return ("Workers only append: log a pass, write a handover or a"
-                    " comment. The orchestrator moves cards; a manager opens"
-                    " them.")
+            return ("Workers can only add to a card: a work report, a"
+                    " handover or a comment. The orchestrator (/forge-run)"
+                    " moves cards; a manager opens them.")
         if k == "manager":
             return "Managers open cards; only the orchestrator moves them."
         if k == "orchestrator":
@@ -132,10 +132,10 @@ def check_handover(fields):
     for key, label in HANDOVER_FIELDS:
         v = (fields.get(key) or "").strip()
         if not v or v.lower() in ("-", "--", "?", "...", "."):
-            problems.append(f"missing {key}: {label}")
+            problems.append(f"missing {label} (--{key.replace('_', '-')})")
         elif v.lower() in _PLACEHOLDERS:
-            problems.append(f"too thin {key}: '{v}' does not say "
-                            f"{label}")
+            problems.append(f"too thin (--{key.replace('_', '-')}): '{v}'"
+                            f" does not say {label}")
     dec = (fields.get("decisions") or "").strip().lower()
     if dec and dec.lower() not in _PLACEHOLDERS and dec != "none" \
             and "because" not in dec:

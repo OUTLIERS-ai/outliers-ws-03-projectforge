@@ -1,7 +1,7 @@
 # ProjectForge - one work board for all your agents
 
 ```
-git clone https://github.com/OUTLIERS-ai/outliers-ws-03-projectforge && cd outliers-ws-03-projectforge && python install.py
+git clone https://github.com/OUTLIERS-ai/outliers-ws-03-projectforge; cd outliers-ws-03-projectforge; python install.py
 ```
 
 A Trello-style board that runs on your own computer, written for Claude Code

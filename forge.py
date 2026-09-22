@@ -12,7 +12,7 @@
   python forge.py next [--json]               the ranked queue (orchestrator)
   python forge.py waiting                     how many cards are ready now
   python forge.py intake --actor orchestrator         triage the backlog
-  python forge.py dispatch TASK_ID --actor orchestrator   claim a card
+  python forge.py dispatch TASK_ID --actor orchestrator   take a card (Ready to In Progress)
   python forge.py commit TASK_ID AGENT "summary" --result completed --actor orchestrator
   python forge.py hygiene                     run the health check once
   python forge.py daemon [--interval 10]      same as serve, with its own check interval
@@ -136,7 +136,7 @@ def build_parser(cfg):
     s.add_argument("--json", action="store_true")
     s = sub.add_parser("intake", help="orchestrator: triage the backlog")
     s.add_argument("--actor", required=True, help=ORCH_HELP)
-    s = sub.add_parser("dispatch", help="orchestrator: claim a card")
+    s = sub.add_parser("dispatch", help="orchestrator: take a card (Ready to In Progress)")
     s.add_argument("task_id")
     s.add_argument("--agent", default=None)
     s.add_argument("--actor", required=True, help=ORCH_HELP)
@@ -216,7 +216,8 @@ def run(args, cfg, store, remirror):
         titles = {t["id"]: t["title"] for t in store.state()["tasks"]}
         print(f"checked {r['checked']} card(s): {r['open_alerts']} alert(s), "
               f"{r['auto_archived']} old Done card(s) archived, "
-              f"{r['reaped']} hung card(s) sent back to Ready")
+              f"{r['reaped']} card(s) whose agent never reported sent back "
+              f"to Ready")
         for a in alerts:
             card = a["task_id"] if a["task_id"] in titles else ""
             print(f"  [{a['kind']}] {a['message']}"

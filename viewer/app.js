@@ -114,11 +114,12 @@ function rulesHtml() {
         <td>open new cards, edit card details, add reports</td>
         <td>move a card between columns</td></tr>
       <tr><td><span class="role r-worker">worker</span> every other agent</td>
-        <td>add a work report, a 5-field handover, a comment, an escalation</td>
+        <td>add a work report, a 5-field handover, a comment, an escalation
+          (a flag saying it needs you)</td>
         <td>open a card, move a card, edit a card</td></tr>
       <tr><td><span class="role r-orchestrator">orchestrator</span>
         the /forge-run command</td>
-        <td>claim a Ready card, record the result and move the card; put a
+        <td>take a Ready card, save the result and move the card; put a
           card into Awaiting You</td>
         <td>take a card out of Awaiting You</td></tr>
     </table>
@@ -664,7 +665,7 @@ async function renderQueue() {
   board.innerHTML = "";
   const q = await (await fetch("/api/next?limit=25")).json();
   const w = q.wip || {};
-  const cap = w.cap ? `/${w.cap}` : "";
+  const cap = w.cap ? ` (limit ${w.cap})` : "";
 
   const wrap = document.createElement("div");
   wrap.className = "queue-wrap";
@@ -676,8 +677,8 @@ async function renderQueue() {
           hand them out: priority, then due date, then oldest first.</div>
       </div>
       <div class="q-wip ${w.at_cap ? "at-cap" : ""}">
-        <div class="q-wip-num">${w.in_progress ?? "–"}${cap}</div>
-        <label>in progress${w.at_cap ? " · limit reached" : ""}</label>
+        <div class="q-wip-num">${w.in_progress ?? "–"}</div>
+        <label>in progress${cap}${w.at_cap ? " · limit reached" : ""}</label>
       </div>
       <div class="q-wip">
         <div class="q-wip-num">${q.ready_count ?? 0}</div>
@@ -791,7 +792,7 @@ async function openDetail(taskId) {
   /* agent track — origination → every handoff → current owner */
   const created = events.find(e => e.action === "created");
   const track = [{
-    agent: created ? created.actor : "?", note: "originated",
+    agent: created ? created.actor : "?", note: "opened the card",
     ts: created ? created.ts : t.created,
   }];
   for (const h of d.handoffs)
@@ -883,7 +884,7 @@ async function openDetail(taskId) {
       <input id="d-newcheck" placeholder="+ checklist item, Enter">
     </div>
 
-    <h4>Work reports — what each agent did</h4>
+    <h4>Work reports: what each agent did</h4>
     <div class="passes">${d.passes.length ? d.passes.map(p => {
       let outs = []; try { outs = JSON.parse(p.outputs || "[]"); } catch {}
       return `<div class="pass">
@@ -895,12 +896,12 @@ async function openDetail(taskId) {
         <div class="pass-sum">${esc(p.summary)}</div>
         ${outs.length ? `<div class="pass-outs">${outs.map(o =>
           `<code>${esc(o)}</code>`).join("")}</div>` : ""}
-        ${p.next_step ? `<div class="pass-next">→ next: ${esc(p.next_step)}</div>` : ""}
+        ${p.next_step ? `<div class="pass-next">Next step: ${esc(p.next_step)}</div>` : ""}
       </div>`;
     }).join("") : `<div class="dimtext">No work reports yet. Agents log one
       per piece of work: what was done, files made, result, what's next.</div>`}</div>
 
-    <h4>Handovers — 5 fields each</h4>
+    <h4>Handovers: 5 fields each</h4>
     <div class="handovers">${d.handoffs.length ? d.handoffs.map(h => `
       <div class="handover">
         <div class="ho-head"><span class="agent">${esc(h.from_agent)}</span> →
@@ -917,7 +918,7 @@ async function openDetail(taskId) {
       is refused unless it says what was done, the decisions and why, where
       it stands, what to do first, and any warnings.</div>`}</div>
 
-    <h4>Agent track</h4>
+    <h4>Every agent that has owned this card</h4>
     <div class="track">${track.map((s, i) => `
       <div class="hop">
         ${i ? `<div class="arrow">↓</div>` : ""}

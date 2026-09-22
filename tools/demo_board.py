@@ -26,9 +26,9 @@ def build(out: Path):
     # a made-up CRM vault, so the person link on the demo card opens a note
     crm = out / "CRM"
     (crm / "People").mkdir(parents=True, exist_ok=True)
-    note = crm / "People" / "Dan Price.md"
+    note = crm / "People" / "Dan Pike.md"
     if not note.exists():
-        note.write_text("# Dan Price\n\nOakfield Joinery. Made-up demo "
+        note.write_text("# Dan Pike\n\nOakfield Joinery. Made-up demo "
                         "person.\n", encoding="utf-8")
     cfgp = out / "config.json"
     cfg = {
@@ -86,7 +86,7 @@ def build(out: Path):
                     status="ready", assignee_agent="inbox-helper", actor=Y)
     t7 = s.add_task(sales, "Call back Dan at Oakfield Joinery about "
                     "payroll", status="awaiting_you", assignee_agent=Y,
-                    actor=Y, crm_person="People/Dan Price.md")
+                    actor=Y, crm_person="People/Dan Pike.md")
     t8 = s.add_task(launch, "Schedule the 3 posts", status="backlog",
                     assignee_agent="social-poster", actor=Y)
 
