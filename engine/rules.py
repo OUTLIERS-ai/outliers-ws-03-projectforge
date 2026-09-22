@@ -1,0 +1,118 @@
+"""Who may do what on the board. Checked inside the store, on every write.
+
+The single-writer rule, set as a working rule on 2026-06-14 and built into
+the store here:
+
+  * YOU (the human) may do anything.
+  * MANAGERS may open new cards and edit card details.
+  * WORKERS (every other agent) may only APPEND: a work report (a "pass"),
+    a handover to the next agent, or a comment. They never open a card and
+    never move one.
+  * The ORCHESTRATOR is the only agent that moves a card between columns.
+
+This is a guard rail, not a lock. An agent that lies about its name gets
+through; one that follows its instructions and names itself honestly is
+stopped before it can make a mess.
+"""
+
+
+class NotAllowed(Exception):
+    """A write that the single-writer rule refuses."""
+
+
+def _n(name):
+    return (name or "").strip().lower()
+
+
+class Roles:
+    SYSTEM = {"hygiene"}  # the no-AI health check (returns hung cards)
+
+    def __init__(self, human="you", orchestrator="orchestrator",
+                 managers=(), outward_owners=()):
+        self.human = _n(human) or "you"
+        self.orchestrator = _n(orchestrator) or "orchestrator"
+        self.managers = {_n(m) for m in managers if _n(m)}
+        self.outward = {_n(o) for o in outward_owners if _n(o)}
+
+    def kind(self, actor):
+        a = _n(actor)
+        if not a:
+            return "nobody"
+        if a == self.human:
+            return "you"
+        if a == self.orchestrator:
+            return "orchestrator"
+        if a in self.SYSTEM:
+            return "system"
+        if a in self.managers:
+            return "manager"
+        return "worker"
+
+    def can_move(self, actor):
+        return self.kind(actor) in ("you", "orchestrator", "system")
+
+    def can_open(self, actor):
+        return self.kind(actor) in ("you", "manager")
+
+    def can_edit(self, actor):
+        return self.kind(actor) in ("you", "manager", "orchestrator")
+
+    def is_orchestrator(self, actor):
+        return self.kind(actor) == "orchestrator"
+
+    def is_outward(self, owner):
+        toks = set(_n(owner).replace("(", " ").replace(")", " ").split())
+        return bool(toks & self.outward) or _n(owner) in self.outward
+
+    def require(self, ok, actor, what):
+        if not _n(actor):
+            raise NotAllowed(
+                f"refused: {what} needs a name. Pass actor=<who you are>.")
+        if not ok:
+            raise NotAllowed(
+                f"refused: {actor} is a {self.kind(actor)} and may not {what}."
+                f" {self.hint(actor)}")
+
+    def hint(self, actor):
+        k = self.kind(actor)
+        if k == "worker":
+            return ("Workers only append: log a pass, write a handover or a"
+                    " comment. The orchestrator moves cards; a manager opens"
+                    " them.")
+        if k == "manager":
+            return "Managers open cards; only the orchestrator moves them."
+        return ""
+
+
+# ---- the 5-field handover standard (ruled 2026-07-19, built here) --------
+
+HANDOVER_FIELDS = [
+    ("done", "what was done (name the files)"),
+    ("decisions", "decisions made and why"),
+    ("state", "where the work stands, including what is NOT done"),
+    ("next_first", "what the next agent should do first"),
+    ("warnings", "warnings (write 'none' if there are none)"),
+]
+
+_PLACEHOLDERS = {"", "-", "--", "n/a", "na", "tbd", "todo", "?", "...", ".",
+                 "x", "see above", "handed over", "done"}
+
+
+def check_handover(fields):
+    """Return a list of problems. Empty list = a real handover."""
+    problems = []
+    for key, label in HANDOVER_FIELDS:
+        v = (fields.get(key) or "").strip()
+        if v.lower() in _PLACEHOLDERS:
+            problems.append(f"missing {key}: {label}")
+    dec = (fields.get("decisions") or "").strip().lower()
+    if dec and dec.lower() not in _PLACEHOLDERS and dec != "none" \
+            and "because" not in dec:
+        problems.append("decisions must say why: include the word 'because'"
+                        " (or write 'none' if no decision was made)")
+    return problems
+
+
+def handover_summary(fields):
+    return (f"DONE: {fields.get('done','').strip()} | "
+            f"NEXT: {fields.get('next_first','').strip()}")

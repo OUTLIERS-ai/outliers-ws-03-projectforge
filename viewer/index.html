@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="command-deck">
+<head>
+<meta charset="utf-8">
+<title>ProjectForge</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="favicon.png">
+<link rel="stylesheet" href="style.css?v=ws03">
+</head>
+<body>
+<header>
+  <div class="brand">
+    <div class="logo">⬢</div>
+    <div>
+      <h1>ProjectForge</h1>
+      <div class="workspace" id="workspace"></div>
+    </div>
+  </div>
+  <div class="pills" id="dept-pills"></div>
+  <div class="controls">
+    <input id="search" placeholder="Search cards…" autocomplete="off">
+    <select id="theme" title="Theme" aria-label="Theme">
+      <option value="command-deck">⬢ Command Deck</option>
+      <option value="synthwave">◈ Synthwave</option>
+      <option value="terminal">⌁ Terminal</option>
+      <option value="paper">▤ Paper · light</option>
+      <option value="minimal">○ Minimal</option>
+    </select>
+    <div class="toggle">
+      <button data-v="board" class="active">Board</button>
+      <button data-v="queue">Queue</button>
+      <button data-v="agents">Agents</button>
+    </div>
+  </div>
+  <div class="meta">
+    <div class="stat"><span id="stat-projects">–</span><label>projects</label></div>
+    <div class="stat"><span id="stat-open">–</span><label>open</label></div>
+    <div class="stat warn"><span id="stat-waiting">–</span><label>awaiting you</label></div>
+    <div class="stat alert"><span id="stat-alerts">–</span><label>alerts</label></div>
+  </div>
+</header>
+
+<main>
+  <div id="board"></div>
+  <aside id="activity">
+    <div id="alerts-panel">
+      <div class="panel-head">
+        <h2>Alerts</h2>
+        <button id="alerts-close" title="Close alerts panel" aria-label="Close alerts panel">×</button>
+      </div>
+      <div id="alerts"></div>
+    </div>
+    <button id="alerts-reopen" class="hidden" title="Show alerts panel">▸ Alerts <span id="alerts-reopen-count"></span></button>
+    <h2 style="margin-top:20px">Activity</h2>
+    <div id="events"></div>
+  </aside>
+</main>
+
+<div id="toast" class="hidden"></div>
+
+<div id="modal-backdrop" class="hidden">
+  <div id="modal">
+    <button id="modal-close">×</button>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<script src="app.js?v=ws03"></script>
+</body>
+</html>

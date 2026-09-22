@@ -1,0 +1,12 @@
+{
+  "slug": "example-agent",
+  "dept": "content",
+  "role": "worker",
+  "autonomy_tier": "supervised",
+  "scopes": {
+    "depts": ["content"],
+    "statuses": []
+  },
+  "max_activations_per_day": 5,
+  "note": "Copy this file to <agent-name>.json and edit it. The orchestrator will then refuse to hand this agent work outside the listed departments, or more than 5 times a day. An agent with no file has no limits."
+}
