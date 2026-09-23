@@ -126,7 +126,8 @@ function rulesHtml() {
     <table class="rules">
       <tr><th>Who</th><th>May</th><th>May not</th></tr>
       <tr><td><span class="role r-you">you</span> ${esc(HUMAN())}</td>
-        <td>anything: open, edit, drag, close cards</td><td>-</td></tr>
+        <td>anything: open, edit, drag, close cards</td>
+        <td>nothing: there is no change you are refused</td></tr>
       <tr><td><span class="role r-manager">manager</span>
         ${mgr.length ? esc(mgr.join(", ")) : "<i>none chosen</i>"}</td>
         <td>open new cards, edit card details, add reports</td>
