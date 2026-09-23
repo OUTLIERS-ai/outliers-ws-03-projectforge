@@ -67,6 +67,26 @@ It also gives you a column that is yours, Awaiting You, and anything that would 
 
 ![The "Who may do what" window, opened with the ? button. It lists your managers by name.](img/rules.png)
 
+### What it is for
+
+Keeping a written trail of every job your agents do, 1 card per job, each with an owner, a work report and a single place where "this is finished" is decided.
+
+### Works well when
+
+- **Your agents hand work to each other.** A writer finishes and an editor picks up. The 5-field handover makes the first agent write down what the second agent needs.
+- **You need Tuesday's work on Friday.** Open the card and read what the agent did, which files it made, and what it left undone.
+- **2 sessions could grab the same job.** Only the orchestrator moves cards, and it can only take a card sitting in Ready, so the second `/forge-run` cannot take it again.
+- **Something is about to reach another person** (a post, an email, a message). It stops in Review, and nothing leaves until you move it.
+- **You want a queue to look at in the morning.** Awaiting You comes first and counts only what actually needs you.
+
+### Does not work well when
+
+- **You put `/forge-run` on a timer against an empty board.** Ashley's ran every 15 minutes. The surviving log shows 304 wake-ups between 2026-07-04 and 2026-07-08 and 0 cards handed out, and it became the largest automatic Claude cost he had. Start it when a cheap check has proved a card is ready, and not before.
+- **You want a personal to-do list.** This is a board for agents. Your own errands belong in your daily note: a card here is picked up and acted on by whichever agent owns it.
+- **You want anything on a card kept to yourself.** Every note, comment and work report on a card is read by the next agent that touches it. Write cards as if the next reader is a stranger, because it is.
+- **You have 3 to 5 agents that work alone.** A simple list in your vault is enough. The board earns its 30 minutes of set-up once agents start handing work along.
+- **You expect the rules to catch an agent that lies.** They catch mistakes. An agent that names itself wrongly, by typing `--actor you`, gets through.
+
 ## How we built it
 
 Ashley built the original for his own agents. Every date and number below comes from his build records. The pictures in this section are his real board, captured on 2026-09-22 from a copy of his database (the data was last written on 2026-08-07).
@@ -292,6 +312,8 @@ Each alert names its card, and under it sits an "Open this card" link that takes
 ![Exactly what the unattended run may do, and what was refused in the live test.](img/unattended.png)
 
 ## Fit it to your own AI system
+
+This download is a starting point, not a finished product. It is yours now: change it until it matches how you work. Ashley wrote the first board in 1 day and then changed it for 3 months. His own copy has 5 tabs along the top, not 1: the board, the queue of what would be handed out next, his agents and what each has done, whether the automatic runner is armed, and a map of his whole fleet, which he moved in after ruling that a separate dashboard on its own port was not allowed to exist. It has colour themes, because he wanted a board that suited the room and the hour. He added an 8th column, Tracking, the day he found 18 cards that only reported a status were filling the limit of 10 in progress and nothing could be handed out at all. Then the 5-field handover, after reading a card that said "handed over" and nothing else. Every one of those changes came from using it and finding it wrong.
 
 Each idea below comes with a prompt you can paste into Claude Code, opened in the ProjectForge folder. Some ideas use settings you will find in `config.json` after installing; `config.example.json` shows them all filled in with examples.
 
