@@ -9,9 +9,9 @@ WHO MAY DO WHAT (checked by the board itself, not just this script):
   * MANAGERS (listed in config.json "managers") may `open` new cards.
   * WORKERS (every other agent) never open or move a card. They `card`
     (read), `pass` (report work), `handoff` (pass it on, which also makes
-    the next agent the card's owner), `comment`, and `escalate` (flag the
-    card for a person: shown in red in the activity list; it does not
-    move the card).
+    the next agent the card's owner), `comment`, and `escalate` (ask for a
+    person: shown in red in the activity list, and the card moves into
+    Awaiting You).
   * Only the orchestrator moves cards between columns. There is no `move`
     command here on purpose.
 
@@ -204,8 +204,12 @@ def main(argv=None):
         elif a.cmd == "escalate":
             store.escalate(a.card, a.note, actor=a.agent)
             remirror()
+            # name the column the card is in now: the next agent goes and
+            # looks in the one this message names
+            where = store.task_detail(a.card)["task"]["status"]
             print("escalation recorded. It shows in red in the board's "
-                  "activity list. The card has not moved.")
+                  f"activity list, and the card is in "
+                  f"{mirror.STATUS_LABEL.get(where, where)}.")
         elif a.cmd == "open":
             tid = store.open_card(a.agent, a.project, a.dept, a.title,
                                   assignee_agent=a.assignee,

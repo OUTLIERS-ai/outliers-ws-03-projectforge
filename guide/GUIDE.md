@@ -225,7 +225,7 @@ git clone https://github.com/OUTLIERS-ai/outliers-ws-03-projectforge; cd outlier
 
 ![The same install with no Obsidian vault at all: `none` at question 1, and questions 7 and 8 answer themselves.](img/no-vault.png)
 
-6. Open the board: `python forge.py serve`, then visit `http://127.0.0.1:3020` in your browser (127.0.0.1 means your own computer; nothing goes online). There is no login and no wait. The terminal prints the address and then stays quiet while the board runs. That is normal. Leave the window open; press Ctrl+C in it to stop the board. The name under "ProjectForge" comes from the `workspace` line in `config.json`, the settings file the installer wrote; change it there.
+6. Open the board: `python forge.py serve`, then visit `http://127.0.0.1:3020` in your browser (127.0.0.1 means your own computer; nothing goes online). There is no login and no wait. **If the terminal says port 3020 is already in use**, another board or another program is answering on that number: run `python forge.py serve --port 3021` instead, and visit `http://127.0.0.1:3021`. Any free number works; 3021 is simply the next one along. The terminal prints the address and then stays quiet while the board runs. That is normal. Leave the window open; press Ctrl+C in it to stop the board. The name under "ProjectForge" comes from the `workspace` line in `config.json`, the settings file the installer wrote; change it there.
 
 ![A fresh board: empty, with the 3 first steps on the left and Awaiting You as the first column.](img/first-run.png)
 

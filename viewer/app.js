@@ -153,8 +153,25 @@ function openRules() {
   showModal();
 }
 
+/* The board redraws itself every 10 seconds. An alerts panel you opened
+   must still be open after that redraw, or the "Open this card ›" link
+   goes out from under your hand while you are reaching for it. The state
+   is kept here as well as in the browser, so a browser that refuses
+   storage still keeps the panel open for as long as the board is on. */
+let alertsOpen = null;   // null until it has been read once
+
+function alertsWanted() {
+  if (alertsOpen === null) {
+    alertsOpen = false;   // default: closed until you open it yourself
+    try { alertsOpen = localStorage.getItem("pf-alerts-open") === "1"; }
+    catch (e) { /* no storage: fall back to closed */ }
+  }
+  return alertsOpen;
+}
+
 function setAlertsPanel(open) {
-  localStorage.setItem("pf-alerts-open", open ? "1" : "0");
+  alertsOpen = open;
+  try { localStorage.setItem("pf-alerts-open", open ? "1" : "0"); } catch (e) { /* ignore */ }
   document.getElementById("alerts-panel").classList.toggle("hidden", !open);
   document.getElementById("alerts-reopen").classList.toggle("hidden", open);
 }
@@ -162,13 +179,13 @@ function setAlertsPanel(open) {
 function wireAlertsPanel() {
   const closeBtn = document.getElementById("alerts-close");
   const reopenBtn = document.getElementById("alerts-reopen");
-  if (closeBtn && !closeBtn.dataset.wired) {
+  if (!closeBtn || !reopenBtn) return;
+  if (!closeBtn.dataset.wired) {
     closeBtn.dataset.wired = "1";
     closeBtn.onclick = () => setAlertsPanel(false);
     reopenBtn.onclick = () => setAlertsPanel(true);
-    // restore last state (default: CLOSED — open only if explicitly reopened)
-    setAlertsPanel(localStorage.getItem("pf-alerts-open") === "1");
   }
+  setAlertsPanel(alertsWanted());   // every refresh, not only the first
 }
 
 async function renderAlerts() {

@@ -11,6 +11,11 @@ board.
 The board never blocks the program sending to it: if the board is not
 running, every call quietly returns None and the program carries on.
 
+A refusal is different from a board that is switched off, and is never
+quiet: if the board turns the write down - an unknown program name, a card
+missing its title - the call raises ForgeRefused carrying the board's own
+words, so nobody is left thinking a write worked when it did not.
+
 Each program owns its own cards. It sends them keyed by ITS OWN ids (`ref`);
 the board matches on (program name, ref) and updates the same card on every
 re-send, so nothing is ever duplicated. Give a work report a stable `key`
@@ -40,6 +45,16 @@ import os
 DEFAULT_URL = os.environ.get("FORGE_URL", "http://127.0.0.1:3020")
 
 
+class ForgeRefused(Exception):
+    """The board turned the write down and said why. The message is the
+    board's own wording, so it reads the same here as it does on screen."""
+
+    def __init__(self, message, status=None, path=None):
+        super().__init__(message)
+        self.status = status
+        self.path = path
+
+
 class ForgeClient:
     def __init__(self, source_app, base_url=DEFAULT_URL, timeout=4,
                  verbose=False):
@@ -60,10 +75,21 @@ class ForgeClient:
             with urllib.request.urlopen(req, timeout=self.timeout) as r:
                 return json.loads(r.read() or b"{}")
         except urllib.error.HTTPError as e:
+            # the board answered, and the answer is no. Say so out loud in
+            # its own words: a silent None here reads as "that worked".
             body = e.read().decode(errors="replace")
+            said = body
+            try:
+                answer = json.loads(body or "{}")
+                if isinstance(answer, dict) and answer.get("error"):
+                    said = answer["error"]
+            except ValueError:
+                pass
             if self.verbose:
                 print(f"[forge] {path} -> HTTP {e.code}: {body}")
-            return None
+            raise ForgeRefused(
+                (said or f"the board answered HTTP {e.code}").strip(),
+                status=e.code, path=path) from None
         except (urllib.error.URLError, TimeoutError, OSError) as e:
             # daemon down / unreachable — federation is best-effort
             if self.verbose:
@@ -83,7 +109,8 @@ class ForgeClient:
     def federate(self, project, tasks=None):
         """Upsert a project and its tasks (with optional nested passes) in
         one batch. Returns the id map from the daemon, or None if the daemon
-        is unreachable."""
+        is unreachable. Raises ForgeRefused if the board turns the write
+        down, with the board's own wording."""
         payload = {
             "source_app": self.source_app,
             # the board only accepts programs named in config.json
