@@ -144,3 +144,92 @@ def test_the_client_file_says_what_a_refusal_does():
     src = (REPO / "adapters" / "forge_client.py").read_text(encoding="utf-8")
     head = src.split("Usage")[0]
     assert "refus" in head and "None" in head
+
+
+# ---- 14. the alerts and activity panel would not fold away ---------------
+# Asked for on 2026-09-23: "in the Alerts and Activity section, I'd like to
+# be able to minimise that." It had two bare x buttons instead, one on
+# Alerts and one on Activity, and neither said what it did. Folded, the
+# panel has to leave the width to the board columns, remember the choice,
+# survive the 10-second refresh, and say on the control itself when
+# something has arrived behind it.
+
+NL = chr(10)
+
+
+def _index_html():
+    return (VIEWER / "index.html").read_text(encoding="utf-8")
+
+
+def _style_css():
+    return (VIEWER / "style.css").read_text(encoding="utf-8")
+
+
+def _app_js():
+    return (VIEWER / "app.js").read_text(encoding="utf-8")
+
+
+def test_one_control_folds_the_alerts_and_activity_panel_and_says_so():
+    html = _index_html()
+    assert 'id="activity-fold"' in html, "there is no control to fold the panel"
+    assert 'id="activity-show"' in html, "there is no control to bring it back"
+    fold = html.split('id="activity-fold"')[1].split("</button>")[0]
+    show = html.split('id="activity-show"')[1].split("</button>")[0]
+    assert ">Hide" in fold, "the fold control does not say Hide"
+    assert "Show alerts and activity" in show, (
+        "the control that brings it back does not say what it shows")
+    assert 'id="activity-close"' not in html, (
+        "the old bare x control is still there, so there are two controls")
+    assert 'id="activity-reopen"' not in html, (
+        "the old edge tab is still there, so there are two controls")
+
+
+def test_the_folded_panel_leaves_the_width_to_the_board_columns():
+    assert "#activity.folded { display: none; }" in _style_css(), (
+        "a folded panel still takes its 270 px of the screen")
+
+
+def test_the_ten_second_refresh_cannot_unfold_the_panel():
+    """The board redraws every 10 seconds. The redraw may update the count
+    on the control; it may never put the panel back on screen."""
+    js = _app_js()
+    for name in ("async function load(", "async function renderEvents(",
+                 "async function renderAlerts("):
+        rest = js.split(name)[1]
+        body = rest.split(NL + "function ")[0].split(NL + "async function ")[0]
+        assert "setActivityFold(" not in body, (
+            name.strip() + " folds or unfolds the panel on every refresh")
+    reads = [ln for ln in js.splitlines()
+             if '"pf-activity-open"' in ln and "pfRead" in ln]
+    assert len(reads) == 1, (
+        "whether the panel is folded is read from the browser more than once")
+
+
+def test_the_control_says_what_arrived_while_the_panel_was_folded():
+    assert 'id="activity-new"' in _index_html(), (
+        "the control has nowhere to say what arrived")
+    js = _app_js()
+    assert "function noteRows(" in js, "nothing counts what arrived"
+    assert 'noteRows("ev"' in js and 'noteRows("al"' in js, (
+        "activity rows and alerts are not both counted")
+    assert '" new)"' in js, "the count is never said on the control"
+
+
+def test_both_fold_controls_are_reachable_from_the_keyboard():
+    html = _index_html()
+    for cid in ('id="activity-fold"', 'id="activity-show"'):
+        tag = html.split(cid)[0].rsplit("<", 1)[1]
+        assert tag.startswith("button"), cid + " is not a button, so Tab skips it"
+        attrs = html.split(cid)[1].split(">")[0]
+        assert "aria-expanded" in attrs and "aria-controls" in attrs, (
+            cid + " does not tell a screen reader what it opens")
+    js = _app_js()
+    assert "show.focus()" in js and "fold.focus()" in js, (
+        "folding leaves the keyboard on a control that is no longer on screen")
+
+
+def test_the_fold_state_survives_a_browser_that_refuses_storage():
+    init = _app_js().split("function initActivityFold(")[1].split("})();")[0]
+    assert "pfRead(" in init and "localStorage" not in init, (
+        "the fold state is read straight from storage, which throws when it "
+        "is refused")

@@ -96,6 +96,9 @@ function crmLink(rel) {
     encodeURIComponent(full)}">${esc(rel)}</a></div>`;
 }
 
+function pfRead(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function pfWrite(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* ignore */ } }
+
 async function load() {
   STATE = await (await fetch("/api/state")).json();
   STATE.last_seen = new Date().toTimeString().slice(0, 5);
@@ -192,6 +195,7 @@ function wireAlertsPanel() {
 async function renderAlerts() {
   wireAlertsPanel();
   const alerts = await (await fetch("/api/alerts")).json();
+  noteRows("al", alerts);
   document.getElementById("stat-alerts").textContent = alerts.length;
   countLabel("stat-alerts", alerts.length, "alert", "alerts");
   document.getElementById("alerts-reopen-count").textContent =
@@ -895,6 +899,7 @@ async function renderQueue() {
 /* ---------- activity feed ---------- */
 async function renderEvents() {
   let events = await (await fetch("/api/events")).json();
+  noteRows("ev", events);
   const box = document.getElementById("events");
   box.innerHTML = "";
   const btn = document.getElementById("refused-filter");
@@ -1266,20 +1271,91 @@ document.getElementById("help").onclick = openRules;
 document.getElementById("stat-waiting-btn").onclick = jumpToAwaiting;
 document.getElementById("stat-needs-btn").onclick = jumpToAwaiting;
 
-/* Folding the activity list away gives the columns 270 px back, which is
-   most of what DONE needs on a 1366-wide laptop. */
-function setActivityPanel(open) {
-  try { localStorage.setItem("pf-activity-open", open ? "1" : "0"); } catch (e) { /* ignore */ }
-  document.getElementById("activity").classList.toggle("folded", !open);
-  document.getElementById("activity-reopen").classList.toggle("hidden", open);
-  renderColJump();
+/* ---------- folding the alerts and activity panel away ---------- */
+/* One control does the job: a "Hide" button at the top of the panel, and a
+   "Show alerts and activity" tab on the edge of the screen while it is
+   folded. Folded, the panel is out of the layout altogether, so the board
+   columns take the whole width — 270 px back, which is most of what DONE
+   needs on a 1366-wide laptop. Both are buttons, so Tab reaches them and
+   Enter or Space works them, and the focus moves with the control.
+
+   The choice is kept in the browser AND in a variable here. The board
+   redraws itself every 10 seconds, and that redraw must never unfold the
+   panel under your hand, so the redraw only ever updates the count on the
+   tab. Whether it is folded is read from the browser once, when the page
+   opens. A browser that refuses to remember settings still works: the
+   variable carries the choice for as long as the board is open.
+
+   While it is folded, anything that arrives is counted and said on the tab
+   itself — "Show alerts and activity (2 new)" — so nothing is hidden
+   without saying so. The count is the number of alerts and activity rows
+   whose id is higher than the newest id at the moment you folded it. */
+let activityOpen = null;       /* null until it has been read once */
+let activityBaseline = null;   /* newest ids at the moment it was folded */
+let newestEventId = 0, newestAlertId = 0;
+let newEventCount = 0, newAlertCount = 0;
+
+function updateActivityCount() {
+  const span = document.getElementById("activity-new");
+  const show = document.getElementById("activity-show");
+  if (!span || !show) return;
+  const n = activityOpen === false ? newEventCount + newAlertCount : 0;
+  span.textContent = n ? "(" + n + " new)" : "";
+  show.title = n
+    ? "Show the alerts and activity panel \u2014 " + n + " new since you hid it"
+    : "Show the alerts and activity panel";
 }
-document.getElementById("activity-close").onclick = () => setActivityPanel(false);
-document.getElementById("activity-reopen").onclick = () => setActivityPanel(true);
-(function initActivity() {
-  let saved = "1";
-  try { saved = localStorage.getItem("pf-activity-open") ?? "1"; } catch (e) { /* ignore */ }
-  setActivityPanel(saved !== "0");
+
+/* Called by the alerts and the activity renders on every refresh. It counts.
+   It never folds and never unfolds. */
+function noteRows(kind, rows) {
+  let max = 0;
+  for (const r of rows) { const n = Number(r.id); if (n > max) max = n; }
+  let fresh = 0;
+  if (activityBaseline) {
+    const base = kind === "ev" ? activityBaseline.ev : activityBaseline.al;
+    for (const r of rows) if (Number(r.id) > base) fresh++;
+  }
+  if (kind === "ev") { newestEventId = Math.max(newestEventId, max); newEventCount = fresh; }
+  else { newestAlertId = Math.max(newestAlertId, max); newAlertCount = fresh; }
+  updateActivityCount();
+}
+
+function setActivityFold(open, keepBaseline) {
+  activityOpen = open;
+  pfWrite("pf-activity-open", open ? "1" : "0");
+  const aside = document.getElementById("activity");
+  const fold = document.getElementById("activity-fold");
+  const show = document.getElementById("activity-show");
+  if (!aside || !fold || !show) return;
+  aside.classList.toggle("folded", !open);
+  show.classList.toggle("hidden", open);
+  fold.setAttribute("aria-expanded", open ? "true" : "false");
+  show.setAttribute("aria-expanded", open ? "true" : "false");
+  if (!keepBaseline) {
+    newEventCount = 0; newAlertCount = 0;
+    if (open) { activityBaseline = null; pfWrite("pf-activity-seen", ""); }
+    else {
+      activityBaseline = { ev: newestEventId, al: newestAlertId };
+      pfWrite("pf-activity-seen", JSON.stringify(activityBaseline));
+    }
+  }
+  if (typeof renderColJump === "function") renderColJump();
+  updateActivityCount();
+}
+
+(function initActivityFold() {
+  const fold = document.getElementById("activity-fold");
+  const show = document.getElementById("activity-show");
+  if (!fold || !show) return;
+  fold.onclick = () => { setActivityFold(false); show.focus(); };
+  show.onclick = () => { setActivityFold(true); fold.focus(); };
+  const open = pfRead("pf-activity-open") !== "0";   /* shown unless you hid it */
+  if (!open) {
+    const seen = pfRead("pf-activity-seen");
+    if (seen) { try { activityBaseline = JSON.parse(seen); } catch (e) { activityBaseline = null; } }
+  }
+  setActivityFold(open, true);
 })();
 document.getElementById("stat-refused-btn").onclick = () => {
   showRefused = true; renderEvents();

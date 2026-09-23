@@ -5,7 +5,7 @@
 <title>ProjectForge</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="favicon.png">
-<link rel="stylesheet" href="style.css?v=ws03c">
+<link rel="stylesheet" href="style.css?v=ws03d">
 </head>
 <body>
 <header>
@@ -49,6 +49,12 @@
 <main>
   <div id="board"></div>
   <aside id="activity">
+    <div class="panel-head fold-head">
+      <h2>Alerts and Activity</h2>
+      <button id="activity-fold" class="fold-btn" aria-controls="activity"
+              aria-expanded="true"
+              title="Hide the alerts and activity panel and give the board columns the space">Hide</button>
+    </div>
     <div id="alerts-panel">
       <div class="panel-head">
         <h2>Alerts <span id="alerts-last" class="last-check"></span></h2>
@@ -57,14 +63,13 @@
       <div id="alerts"></div>
     </div>
     <button id="alerts-reopen" class="hidden" title="Show alerts panel">▸ Alerts <span id="alerts-reopen-count"></span></button>
-    <div class="panel-head">
-      <h2 style="margin-top:20px">Activity</h2>
-      <button id="activity-close" title="Hide this panel and give the columns the space" aria-label="Hide the activity panel">×</button>
-    </div>
+    <h2 style="margin-top:20px">Activity</h2>
     <button id="refused-filter" class="linkish">show refusals only</button>
     <div id="events"></div>
   </aside>
-  <button id="activity-reopen" class="hidden" title="Show the activity panel">◂ Activity</button>
+  <button id="activity-show" class="hidden" aria-controls="activity"
+          aria-expanded="false"
+          title="Show the alerts and activity panel">Show alerts and activity <span id="activity-new"></span></button>
 </main>
 
 <div id="toast" class="hidden"></div>
@@ -76,6 +81,6 @@
   </div>
 </div>
 
-<script src="app.js?v=ws03c"></script>
+<script src="app.js?v=ws03d"></script>
 </body>
 </html>

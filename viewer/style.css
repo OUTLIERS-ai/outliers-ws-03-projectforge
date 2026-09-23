@@ -203,21 +203,32 @@ main { display: flex; gap: 0; }
   max-height: calc(100vh - var(--hdr, 68px) - var(--jump, 0px));
   overflow-y: auto;
 }
+/* --- one control folds the whole alerts and activity panel away --- */
+.fold-head { margin-bottom: 12px; }
+.fold-head h2 { margin-bottom: 0; }
+#activity-fold {
+  background: none; box-shadow: none; color: var(--dim);
+  font-size: 11px; text-transform: uppercase; letter-spacing: 1.4px;
+  padding: 2px 4px; cursor: pointer;
+}
+#activity-fold:hover, #activity-fold:focus-visible {
+  color: var(--accent); transform: none; box-shadow: none;
+}
 #activity.folded { display: none; }
-#activity-reopen {
+#activity-show {
   position: fixed; right: 0; top: 50%; transform: translateY(-50%);
-  writing-mode: vertical-rl; background: var(--panel); box-shadow: none;
+  /* solid, not see-through: on a 1366-wide screen it sits over a card */
+  writing-mode: vertical-rl; background: var(--bg2); box-shadow: none;
   border: 1px solid var(--panel-border); border-right: none;
   border-radius: 10px 0 0 10px; color: var(--dim);
   font-size: 11px; letter-spacing: 1.4px; text-transform: uppercase;
   padding: 14px 5px; cursor: pointer; z-index: 15;
 }
-#activity-reopen:hover { color: var(--accent); transform: translateY(-50%); }
-#activity-close {
-  background: none; box-shadow: none; color: var(--dim);
-  font-size: 16px; line-height: 1; padding: 0 4px; margin-bottom: 14px;
+#activity-show:hover, #activity-show:focus-visible {
+  color: var(--accent); transform: translateY(-50%);
 }
-#activity-close:hover { color: var(--accent); transform: none; box-shadow: none; }
+#activity-show.hidden { display: none; }
+#activity-new { color: var(--accent); }
 #refused-filter { margin: -6px 0 10px; }
 #activity h2 {
   font-size: 11px; text-transform: uppercase; letter-spacing: 1.6px;

@@ -18,7 +18,11 @@ The board has up to 8 columns. **Awaiting You** comes first, because it is the o
 3. A red **NEEDS YOU** label: an agent has asked for a person on this card, so the card has moved into Awaiting You. The header counts these under "needs you".
 4. The Activity list: every change, newest first, each line naming the card and its project. Refusals and requests for a person are in red. **show refusals only** narrows it to the changes the board refused.
 
-Not every column fits on a laptop screen. When they do not, a bar under the header names every column with its number of cards; click a name and the board scrolls to that column. The Activity list on the right can also be folded away with the **x** beside its heading, which gives the columns another 270 pixels.
+Not every column fits on a laptop screen. When they do not, a bar under the header names every column with its number of cards; click a name and the board scrolls to that column.
+
+The Alerts and Activity panel on the right folds away too. Click **Hide** at the top of it and the columns take back the 270 pixels it was using; a **Show alerts and activity** tab appears on the right-hand edge, and clicking that brings the panel back. Both are ordinary buttons, so the Tab key reaches them and Enter works them. The board remembers which way you left it, after a refresh and the next time you open it, and the board's own 10-second refresh never puts the panel back on its own. Anything that arrives while it is folded is counted on the tab itself — **Show alerts and activity (2 new)** — so nothing is hidden from you without saying so.
+
+![The same board with the Alerts and Activity panel folded away. The Review column has come into view, and the tab on the right-hand edge brings the panel back.](img/activity-folded.png)
 
 ![Clicking "Done" in the bar under the header scrolls the board to the Done column. On a screen 1366 pixels wide, 7 columns need 1,610 pixels of width and the window has only 1,126 pixels of width, so 2 columns are always off the edge.](img/columns-reachable.png)
 
@@ -165,7 +169,7 @@ A test that made 231 changes to the board in a row, and a second read of the who
 - **A member with no Obsidian vault could not install.** Question 1, your second brain vault folder, now takes `none`: the same answer question 2 already took for your CRM folder.
 - **An agent asking for a person left no mark.** It now marks the card, counts it in the header, moves it into Awaiting You and raises an alert.
 - **Every line in the Activity list said "you created this" without naming the card**, 11 times in a row. Every line now names the card and its project.
-- **The Done column sat off the right-hand edge** on both screens we tested, 1366 and 1920 pixels wide, and the scroll bar that would have taken you there was almost the same colour as the near-black board behind it. There is now a bar naming every column, the Activity list folds away, and the board's own scroll bar is the accent colour.
+- **The Done column sat off the right-hand edge** on both screens we tested, 1366 and 1920 pixels wide, and the scroll bar that would have taken you there was almost the same colour as the near-black board behind it. There is now a bar naming every column, the Alerts and Activity panel folds away with a **Hide** button, and the board's own scroll bar is the accent colour.
 - **Smaller fixes:** a search with no matches says so; refusals on the board no longer show the full command an agent typed; every alert links to its card; and the installer needs Python 3.11 or newer.
 
 ![A worker trying to open a card, a worker trying to move a card, and a thin handover. The board refuses all 3. Each refusal ends with a number (the exit code) that a script can read to tell which refusal happened. pf-t-6c37e9 is a card's id.](img/refusals.png)
