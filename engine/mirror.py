@@ -4,6 +4,8 @@ Off unless config "summary_note" names a file (the installer asks, and you
 confirm the path). Rewritten in full after every change, via a temporary
 file and os.replace, so Obsidian never sees half a note.
 """
+import os
+import sys
 import time
 from pathlib import Path
 from urllib.parse import quote
@@ -37,6 +39,24 @@ class VaultMissing(OSError):
     or a OneDrive vault that has not synced yet, used to get a brand new
     empty folder with one note in it, while `mirror` reported success.
     """
+
+
+class VaultRefused(VaultMissing):
+    """The folder is there, but macOS refused the board access to it.
+
+    On a Mac, a program started by itself (the board's start-up file) may be
+    refused the Documents folder. Python then reads the folder as missing, so
+    the board said the vault was not there when it was. It now says macOS
+    refused, and what to do. Other systems are unchanged.
+    """
+
+
+def refused_message(folder):
+    return (f"the summary note was not written: macOS refused access to "
+            f"{folder}. A program that starts by itself may be refused the "
+            f"Documents folder. Move your vault out of Documents, for example "
+            f"to {Path.home() / 'Second Brain'}, then run  python3 install.py  "
+            f"again and give it the vault's new place.")
 
 
 def crm_link(rel, config):
@@ -117,6 +137,13 @@ def write_mirrors(store, config, base_dir=None):
     if not target:
         return []
     folder = Path(target).parent
+    if sys.platform == "darwin":
+        try:
+            os.listdir(folder)
+        except PermissionError:
+            raise VaultRefused(refused_message(folder)) from None
+        except OSError:
+            pass
     if not folder.is_dir():
         raise VaultMissing(
             f"the summary note was not written: the folder {folder} is not "
@@ -127,5 +154,10 @@ def write_mirrors(store, config, base_dir=None):
     state["alerts"] = store.open_alerts()
     text = NOTE_HEADER.format(date=time.strftime("%Y-%m-%d"), py=PY) + \
         render(state, config)
-    atomic_write(Path(target), text)
+    try:
+        atomic_write(Path(target), text)
+    except PermissionError:
+        if sys.platform != "darwin":
+            raise
+        raise VaultRefused(refused_message(folder)) from None
     return [target]
