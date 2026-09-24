@@ -87,6 +87,8 @@ def test_the_logon_file_is_not_written_unless_you_ask(tmp_path, monkeypatch):
     assert list(startup.iterdir()) == []
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="pythonw and the .vbs file exist on Windows only; "
+                    "tests/mac/mac_logon_plist.py checks the Mac start-up file")
 def test_the_logon_file_is_written_when_you_ask(tmp_path, monkeypatch):
     home, ch, sb, crm, cfgp = fake_setup(tmp_path, monkeypatch)
     startup = fake_startup(tmp_path, monkeypatch)
