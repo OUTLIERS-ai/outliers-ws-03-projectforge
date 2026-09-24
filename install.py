@@ -778,9 +778,73 @@ def do_uninstall(args):
                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW",
                                              0))
     from engine.config import db_path
+    report_pasted_lines(cfg, adir / "forge_agent.py",
+                        db_path(cfg).parent / "CLAUDE-snippet.md")
     say(f"Done. Your board is still in {db_path(cfg).parent} and your "
         f"settings in {cpath}.")
     return 0
+
+
+SNIPPET_HEADING = "## ProjectForge - the work board (paste into your CLAUDE.md)"
+
+
+def pasted_lines(path, wanted):
+    """Line numbers and text of the lines in `path` that came from the snippet
+    or name the agents' tool. Reads only; never changes the file."""
+    try:
+        text = Path(path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    hits = []
+    for n, line in enumerate(text.splitlines(), start=1):
+        s = line.strip()
+        if s and (s in wanted or "forge_agent.py" in s):
+            hits.append((n, s))
+    return hits
+
+
+def report_pasted_lines(cfg, adapter, snippet_file):
+    """Step 9 of the guide has the member paste lines into CLAUDE.md. Those
+    lines tell every session to run the agents' tool, which the uninstall has
+    just moved aside. The member's own files are theirs: name the file and
+    each line to take out, and change nothing."""
+    first_part = claude_snippet(cfg, adapter).split(
+        "## Paste into each worker agent's file")[0]
+    wanted = {ln.strip() for ln in first_part.splitlines() if ln.strip()}
+    places = [claude_home() / "CLAUDE.md"]
+    if cfg.get("second_brain"):
+        places.append(Path(cfg["second_brain"]) / "CLAUDE.md")
+    for d in cfg.get("agents_dirs") or []:
+        if Path(d).is_dir():
+            places.extend(sorted(Path(d).glob("*.md")))
+    say("\nOne step is yours. This uninstaller never edits your CLAUDE.md or "
+        "your agent files,\nbut the lines you pasted in at step 9 of the guide "
+        "still tell your agents to run\nforge_agent.py, which has just been "
+        "moved aside. Take these lines out by hand,\nwith the blank lines "
+        "between them, and save the file:")
+    found = False
+    seen = set()
+    for p in places:
+        key = os.path.normcase(str(Path(p).resolve()))
+        if key in seen:
+            continue
+        seen.add(key)
+        hits = pasted_lines(p, wanted)
+        if not hits:
+            continue
+        found = True
+        say(f"\n  In {p}")
+        for n, s in hits:
+            say(f"    line {n}: {s}")
+    if not found:
+        say(f"\n  None found in {claude_home() / 'CLAUDE.md'}"
+            + (f" or {Path(cfg['second_brain']) / 'CLAUDE.md'}"
+               if cfg.get("second_brain") else "")
+            + " or your agent files.")
+        say("  If you pasted them into another CLAUDE.md, take out the "
+            "section headed")
+        say(f"  {SNIPPET_HEADING.split(' (')[0]}")
+    say(f"  The same lines are in {snippet_file}, to compare against.\n")
 
 
 def main(argv=None):

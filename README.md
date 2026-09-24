@@ -40,7 +40,9 @@ on a Mac. It is off unless you say yes (`--yes` leaves it off;
 `--start-with-computer`, which means yes at question 9, switches it on). Run it twice and the second
 run changes nothing. `python install.py --uninstall` stops the board, takes
 away the start-up file it wrote, takes the rest out again, and leaves your
-board data alone.
+board data alone. It never edits your CLAUDE.md: it prints the file and the
+number of each line you pasted into it from `data/CLAUDE-snippet.md`, so you
+can delete them by hand.
 
 ## Everyday commands
 
@@ -99,7 +101,7 @@ python forge_agent.py open --agent <manager> --dept content --project "..." --ti
 Python 3.11 or newer, Git, Claude Code. The installer refuses anything older
 and changes nothing: Python 3.9 stopped getting security fixes on 2025-10-31,
 and 3.10 gets them only until 2026-10-31. No extra Python packages to run it;
-`pytest` only to run the 156 tests (`python -m pip install pytest`, then
+`pytest` only to run the 158 tests (`python -m pip install pytest`, then
 `python -m pytest -q`). The tests point your home folder and Startup folder at
 a throwaway folder first, so they never touch your real ones.
 
