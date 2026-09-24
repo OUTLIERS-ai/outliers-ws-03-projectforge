@@ -140,7 +140,7 @@ The code went into git, the program that keeps every past version of a file (33 
 
 He also counted the first 7 days: **3 cards done, 18 times Ashley stepped in, 4 cards handed out**. 3 finished cards against 18 times he stepped in meant the loop made more work for him than it saved.
 
-![Ashley's Agents tab: open cards per agent (his 4 busiest agents: an agent that hunts product ideas had 20, a forecasting agent 14, a news-sorting agent 10, and his sales-director agent 9), each with its last work report and a row of coloured dots, 1 for each of its recent results.](img/original-agents.png)
+![Ashley's Agents tab: open cards per agent (his 3 busiest agents: an agent that hunts product ideas had 20, a forecasting agent 14 and a news-sorting agent 10), each with its last work report and a row of coloured dots, 1 for each of its recent results. The columns to the right are cropped off, because their cards named real people.](img/original-agents.png)
 
 ![A real card: "Qualified ICP pipeline" (ICP: ideal customer profile, the kind of client he wants), the card with the most work reports on his board (65). The yellow bar says no activity for 48 days.](img/original-card.png)
 
