@@ -197,8 +197,14 @@ def test_stop_leaves_another_program_on_the_port_alone(tmp_path, monkeypatch,
     answering on that port now. This starts a plain web server that is not the
     board, points the record at it, and shows it is still alive afterwards."""
     port = free_port()
+    # A plain web server that is not the board. Not `python -m http.server`: that one
+    # looks up the name of 127.0.0.1 before it answers, which took 35 seconds on
+    # GitHub's test Macs (2026-09-24), longer than this check waits.
+    plain = ("import http.server, socketserver; "
+             "socketserver.TCPServer(('127.0.0.1', %d), "
+             "http.server.SimpleHTTPRequestHandler).serve_forever()" % port)
     other = subprocess.Popen(
-        [sys.executable, "-m", "http.server", str(port), "--bind", "127.0.0.1"],
+        [sys.executable, "-c", plain],
         cwd=str(tmp_path), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         creationflags=NO_WINDOW)
     try:
