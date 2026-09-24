@@ -92,6 +92,9 @@ def make_handler(store, config, base_dir: Path):
             "managers": config.get("managers", []),
             "outward_owners": config.get("outward_owners", []),
             "crm_vault": config.get("crm_vault", ""),
+            # the command this computer runs Python with, for commands the
+            # page prints (python3 on a Mac, python on Windows)
+            "python": "python" if os.name == "nt" else "python3",
         }
 
     class Handler(BaseHTTPRequestHandler):

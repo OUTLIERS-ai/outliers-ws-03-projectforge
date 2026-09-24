@@ -441,7 +441,7 @@ function firstRunPanel() {
         would get it. Nothing changes until you run <code>/forge-run</code>.</li>
     </ol>
     <p class="dimtext">Want to look round a full board first? In a terminal in
-      this folder: <code>python tools/demo_board.py --out demo --serve</code>,
+      this folder: <code>${(STATE.config && STATE.config.python) || "python"} tools/demo_board.py --out demo --serve</code>,
       then open http://127.0.0.1:3029.</p>`;
   el.querySelector("#fr-project").onclick = openNewProject;
   return el;
