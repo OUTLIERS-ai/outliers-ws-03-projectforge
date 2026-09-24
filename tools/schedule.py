@@ -119,6 +119,13 @@ def main(argv=None):
     except ConfigError as e:
         print(e)
         return 1
+    if cfg.get("copy_of") and (a.install or a.remove):
+        # the schedule has 1 name on the whole computer, so a practice copy
+        # switching it on or off would replace or remove the everyday one.
+        print(f"Refused: this folder is a practice copy of {cfg['copy_of']}. "
+              f"The schedule belongs to the everyday board: run this in "
+              f"{cfg['copy_of']} instead. Nothing changed.")
+        return 2
     every = a.every or (cfg.get("schedule") or {}).get("every_min") or 60
     if every < 5:
         print("Refused: pick 5 minutes or more.")

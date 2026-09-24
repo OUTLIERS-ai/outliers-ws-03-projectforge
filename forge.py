@@ -1,6 +1,8 @@
 """ProjectForge command line. No AI anywhere in here: plain Python.
 
   python forge.py serve [--port N]            open the web board
+  python forge.py serve --stop                stop a board that is already running (the one from this folder)
+  python forge.py make-copy ../projectforge-practice   a practice copy to change safely
   python forge.py list                        open cards in the terminal
   python forge.py projects                    projects and their ids
   python forge.py add-project "Title" --dept content --actor YOU
@@ -60,6 +62,14 @@ def build_parser(cfg):
 
     s = sub.add_parser("serve")
     s.add_argument("--port", type=int, default=cfg.get("port", 3020))
+    s.add_argument("--stop", action="store_true",
+                   help="stop the board that belongs to this folder, whichever "
+                        "port it is on, instead of opening one")
+    s = sub.add_parser("make-copy",
+                       help="a practice copy of this folder, with its own "
+                            "port and its own copy of the cards")
+    s.add_argument("folder")
+    s.add_argument("--port", type=int, default=None)
     sub.add_parser("mirror")
     sub.add_parser("list")
     sub.add_parser("projects", help="every project and its id")
@@ -186,7 +196,14 @@ def main(argv=None):
 def run(args, cfg, store, remirror):
     c = args.cmd
     if c == "serve":
+        if args.stop:
+            return server.stop(cfg)
         return server.serve(store, cfg, BASE, port=args.port)
+    elif c == "make-copy":
+        from engine import practice
+        code, lines = practice.make_copy(cfg, BASE, args.folder, args.port)
+        print("\n".join(lines))
+        return code
     elif c == "mirror":
         try:
             written = mirror.write_mirrors(store, cfg, BASE)

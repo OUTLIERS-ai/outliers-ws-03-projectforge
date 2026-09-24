@@ -66,6 +66,13 @@ def find_claude(cfg):
     return shutil.which("claude")
 
 
+def on_windows():
+    """A current Mac has python3 and no python; the commands below must match
+    what /forge-run and your CLAUDE.md lines type. A function so a check can
+    pretend to be a Mac."""
+    return os.name == "nt"
+
+
 def allowed_tools(cfg):
     """Exactly the board commands an unattended /forge-run needs.
 
@@ -80,9 +87,10 @@ def allowed_tools(cfg):
     come from your own settings, or add them to schedule.extra_allowed_tools
     in config.json.
     """
-    forge = f'python "{BASE.as_posix()}/forge.py"'
+    py = "python" if on_windows() else "python3"
+    forge = f'{py} "{BASE.as_posix()}/forge.py"'
     adir = cfg.get("adapter_dir") or str(BASE / "adapters")
-    agent = f'python "{Path(adir).as_posix()}/forge_agent.py"'
+    agent = f'{py} "{Path(adir).as_posix()}/forge_agent.py"'
     orch = cfg.get("orchestrator", "orchestrator")
     rules = [f"Bash({forge} waiting)", f"Bash({forge} waiting *)",
              f"Bash({forge} next *)", f"Bash({forge} intake --actor {orch})",

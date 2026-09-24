@@ -18,6 +18,8 @@ starts and then every few minutes, so Alerts and the 45-minute return of
 hung cards work under plain `serve`, not only under `daemon`.
 """
 import json
+import os
+import signal
 import socket
 import threading
 import time
@@ -32,6 +34,7 @@ from .rules import NotAllowed
 ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
 MAX_BODY = 1_000_000
 LAST_CHECK = {"ts": "", "open_alerts": None, "error": ""}
+APP_NAME = "projectforge"
 
 HEALTH_FAILED = (
     "The board's health check has stopped. Until this is fixed the board is "
@@ -151,6 +154,18 @@ def make_handler(store, config, base_dir: Path):
             if path == "/api/waiting":
                 return self._send(200, store.work_waiting(
                     config, cards=cards_mod.load_cards(base_dir)))
+            if path == "/api/meta":
+                # Who is answering on this port. `serve --stop` reads this
+                # before it ends anything, so a record left behind by an old
+                # board can never end another program that happens to have
+                # the same process number now.
+                # "record" names this board's own data/forge.pid, so a
+                # copy of the download folder can never stop the board
+                # that belongs to another folder.
+                return self._send(200, {
+                    "app": APP_NAME, "pid": os.getpid(),
+                    "port": self.server.server_address[1],
+                    "record": str(record_path(config))})
             if path.startswith("/api/task/"):
                 try:
                     return self._send(200, store.task_detail(
@@ -331,23 +346,171 @@ def start_health_loop(store, config, base_dir, every_min=None):
     return t
 
 
+# ------------------------------------------------------------- start / stop
+#
+# A board that started by itself when the computer started has no window,
+# so there is nothing to press Ctrl+C in. The running board writes its own process number and port into
+# data/forge.pid, and `serve --stop` reads that file. It is written by the
+# board itself, however it was started: by you, by the start-up file, or by
+# the schedule.
+
+def record_path(config) -> Path:
+    from .config import db_path
+    return db_path(config).parent / "forge.pid"
+
+
+def write_record(config, port):
+    from .config import atomic_write
+    atomic_write(record_path(config),
+                 json.dumps({"pid": os.getpid(), "port": int(port)}) + "\n")
+
+
+def read_record(config):
+    """{"pid": ..., "port": ...} for the board this computer last started,
+    or None when there is no record or it cannot be read."""
+    try:
+        rec = json.loads(record_path(config).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if isinstance(rec, dict) and isinstance(rec.get("pid"), int):
+        return rec
+    return None
+
+
+def clear_record(config, pid=None):
+    """Take the record away, but only when it is still ours."""
+    rec = read_record(config)
+    if rec and pid is not None and rec.get("pid") != pid:
+        return
+    try:
+        record_path(config).unlink()
+    except OSError:
+        pass
+
+
+def ask_board(port, timeout=1.5):
+    """The answer from /api/meta on this port, but only when the program
+    answering calls itself the board. Anything else comes back as None, so
+    it is never stopped."""
+    if not port:
+        return None
+    import urllib.request
+    try:
+        with urllib.request.urlopen(
+                "http://127.0.0.1:%d/api/meta" % int(port),
+                timeout=timeout) as r:
+            meta = json.loads(r.read().decode("utf-8"))
+    except (OSError, ValueError):
+        return None
+    if isinstance(meta, dict) and meta.get("app") == APP_NAME:
+        return meta
+    return None
+
+
+def same_file(a, b):
+    try:
+        return (os.path.normcase(os.path.abspath(str(a))) ==
+                os.path.normcase(os.path.abspath(str(b))))
+    except (TypeError, ValueError):
+        return False
+
+
+def is_ours(config, meta):
+    """True only when the board answering keeps its record in THIS folder.
+    A folder copied with its data/forge.pid names the everyday board's
+    process number and port; without this, serve --stop typed in the copy
+    ended the everyday board."""
+    return bool(meta) and same_file(meta.get("record", ""),
+                                    record_path(config))
+
+
+def running(config):
+    """(pid, port) of this folder's board when it is answering AND agrees
+    with the record, else None."""
+    rec = read_record(config)
+    if not rec:
+        return None
+    meta = ask_board(rec.get("port"))
+    if meta and meta.get("pid") == rec["pid"] and is_ours(config, meta):
+        return rec["pid"], rec["port"]
+    return None
+
+
+def stop(config):
+    """python forge.py serve --stop. Ends the board this computer started,
+    whichever window (or none) it is in."""
+    rp = record_path(config)
+    rec = read_record(config)
+    if not rec:
+        print(f"The board is not running: there is no record of it in {rp}.",
+              flush=True)
+        print("If a board is open in a terminal window, press Ctrl+C in that "
+              "window instead.", flush=True)
+        return 0
+    live = running(config)
+    if not live:
+        print(f"The board on record (process {rec['pid']}, port "
+              f"{rec.get('port')}) is not answering. Nothing was stopped.",
+              flush=True)
+        print("The record is out of date, or it was copied from another "
+              "folder, so no other program was touched. The record has been "
+              "cleared.", flush=True)
+        clear_record(config)
+        return 0
+    pid, port = live
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError as e:
+        print(f"Could not stop the board (process {pid}): "
+              f"{getattr(e, 'strerror', None) or e}", flush=True)
+        return 1
+    for _ in range(40):
+        if ask_board(port, 0.3) is None:
+            break
+        time.sleep(0.25)
+    print(f"Stopped the board (process {pid}, port {port}).", flush=True)
+    clear_record(config, pid)
+    return 0
+
+
+def port_in_use_message(config, port):
+    """What to say when the port is taken, naming who has it."""
+    other = ("run this one on another port:  python forge.py serve --port %d"
+             % (int(port) + 1))
+    meta = ask_board(port)
+    if meta and is_ours(config, meta):
+        return (f"This board is already running at http://127.0.0.1:{port} - "
+                f"open that address in your browser. To stop it:  python "
+                f"forge.py serve --stop")
+    if meta:
+        return (f"Port {port} is already in use by a ProjectForge board from "
+                f"another folder. Stop that one from its own folder, or "
+                f"{other}")
+    return (f"Port {port} is already in use by another program. "
+            f"R{other[1:]}")
+
+
 def serve(store, config, base_dir: Path, port=3020, health_every_min=None):
     try:
         httpd = make_server(store, config, base_dir, port)
     except OSError:
-        print(f"Port {port} is already in use - probably another copy of "
-              f"the board. Close its terminal window, or run this one on "
-              f"another port:  python forge.py serve --port {port + 1}",
-              flush=True)
+        print(port_in_use_message(config, port), flush=True)
         return 6
     start_health_loop(store, config, base_dir, health_every_min)
+    try:
+        write_record(config, port)
+    except OSError as e:
+        print(f"(could not write {record_path(config)}: {e} - the board "
+              f"still works, but serve --stop will not find it)", flush=True)
     print(f"ProjectForge board: http://127.0.0.1:{port}", flush=True)
-    print("Leave this window open while you use the board. "
-          "Press Ctrl+C here to stop it.", flush=True)
+    print("Leave this window open while you use the board. Press Ctrl+C "
+          "here, or run  python forge.py serve --stop  in another terminal, "
+          "to stop it.", flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
         httpd.server_close()
+        clear_record(config, os.getpid())
     return 0

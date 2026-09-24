@@ -18,6 +18,23 @@ MANAGER = "content-lead"
 WORKER = "writer-bot"
 
 
+@pytest.fixture(autouse=True)
+def never_the_real_home(tmp_path, monkeypatch):
+    """Every check starts with the home folder, APPDATA (where Windows keeps
+    the Startup folder) and Claude Code's folder pointed at a throwaway
+    folder. Without this, 2 checks that run the installer took away the
+    member's own start-up file (test_real_startup_untouched.py). A check may
+    still point them somewhere else of its own."""
+    guard = tmp_path / "guard-home"
+    guard.mkdir()
+    monkeypatch.setenv("HOME", str(guard))
+    monkeypatch.setenv("USERPROFILE", str(guard))
+    monkeypatch.setenv("APPDATA", str(guard / "AppData" / "Roaming"))
+    monkeypatch.setenv("LOCALAPPDATA", str(guard / "AppData" / "Local"))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(guard / ".claude"))
+    monkeypatch.delenv("FORGE_CONFIG", raising=False)
+
+
 @pytest.fixture
 def roles():
     return Roles(human=HUMAN, orchestrator=ORCH, managers=[MANAGER],

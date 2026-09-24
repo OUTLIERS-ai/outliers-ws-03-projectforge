@@ -12,6 +12,10 @@ What it does, in order, and only after you say yes:
   6. installs the /forge-run command into your Claude Code commands folder
      (backing up any file already there first)
   7. optionally writes a board summary note into your second brain
+  8. optionally starts the board by itself, with no window, each time you
+     switch on your computer and sign in (question 9).
+     Off unless you say yes. Windows: a .vbs file in your Startup folder.
+     Mac: a launchd file in ~/Library/LaunchAgents.
 
 It never starts anything on a timer. Running it twice changes nothing the
 second time. If something it needs is missing it says so and changes nothing.
@@ -31,6 +35,16 @@ BASE = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE))
 
 MARKER = "installed by outliers-ws-03-projectforge"
+
+# the optional start-up file: it starts the board by itself when the computer
+# starts. Off unless you answer yes to question 9 (or pass
+# --start-with-computer; --logon, its name before 2026-09-24, still works).
+LOGON_NAME = "Outliers ProjectForge.vbs"
+PLIST_NAME = "ai.outliers.projectforge.plist"
+LOGON_MARK = "ProjectForge start-up file (written by install.py)"
+# the mark used before 2026-09-24, still recognised so an earlier file is
+# replaced or taken away rather than left behind as somebody else's.
+OLD_LOGON_MARKS = ("ProjectForge logon file (written by install.py)",)
 
 # 3.11 or newer. 3.9 stopped getting security fixes on 2025-10-31 and 3.10
 # stops on 2026-10-31, so naming either would send a member to a runtime
@@ -140,9 +154,162 @@ class Asker:
             got = ""
         return default if not got else got.startswith("y")
 
+    def offer(self, prompt, default=False):
+        """A question that keeps its default under --yes, so a script can
+        never switch something on that was never asked for."""
+        if self.yes:
+            return default
+        d = "Y/n" if default else "y/N"
+        try:
+            got = input(f"{prompt} [{d}]: ").strip().lower()
+        except EOFError:
+            got = ""
+        return default if not got else got.startswith("y")
+
 
 def split_names(s):
     return [x.strip() for x in (s or "").split(",") if x.strip()]
+
+
+# ------------------------------- starting it by itself when the computer starts
+#
+# Pieces 1, 2 and 4 all offer this, so the board offers it too. It is off
+# unless you say yes: --yes takes the default for every other question and
+# leaves this one off, so a script can never put a file in your Startup
+# folder without being told to.
+#
+# Windows: a .vbs file in your Startup folder. `Run ..., 0, False` means 0 =
+# no window at all and False = do not wait for it, and the program it starts
+# is pythonw.exe, the copy of Python that has no console. Together that is
+# what keeps a window off your desktop when the computer starts.
+#
+# Mac: a launchd file in ~/Library/LaunchAgents. Linux: the crontab line is
+# printed for you to paste, because there is no one place every Linux uses.
+
+def on_windows():
+    """Kept as a function so a check can pretend to be a Mac without
+    changing os.name, which would change how every file path is read."""
+    return os.name == "nt"
+
+
+def on_mac():
+    return sys.platform == "darwin"
+
+
+def sign_in_words():
+    """The computer's own sign-in, in the words each system uses. No
+    account of any kind is involved."""
+    if on_mac():
+        return "log in to your Mac"
+    if on_windows():
+        return "sign in to Windows"
+    return "sign in"
+
+
+def ours(text):
+    return any(m in text for m in (LOGON_MARK,) + OLD_LOGON_MARKS)
+
+
+def startup_dir():
+    appdata = os.environ.get("APPDATA")
+    return Path(appdata) / "Microsoft" / "Windows" / "Start Menu" / \
+        "Programs" / "Startup" if appdata else None
+
+
+def pythonw():
+    """python.exe opens a console window; pythonw.exe does not."""
+    p = Path(sys.executable).with_name("pythonw.exe")
+    return str(p if p.exists() else sys.executable)
+
+
+def logon_text(port):
+    cmd = '"%s" "%s" serve --port %d' % (pythonw(), BASE / "forge.py",
+                                         int(port))
+    return ("' %s\n"
+            "' Starts the ProjectForge board, with no window, each time you "
+            "switch on the computer and sign in.\n"
+            "' Remove it with: python install.py --uninstall\n"
+            'Set sh = CreateObject("WScript.Shell")\n'
+            'sh.CurrentDirectory = "%s"\n'
+            'sh.Run "%s", 0, False\n'
+            % (LOGON_MARK, BASE, cmd.replace('"', '""')))
+
+
+def plist_text(port):
+    """A start-up job on a Mac starts with almost none of the folders your
+    terminal searches, so the full path to Python is written in."""
+    return ("""<?xml version="1.0" encoding="UTF-8"?>
+<!-- %s -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" \
+"http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>ai.outliers.projectforge</string>
+  <key>ProgramArguments</key><array>
+    <string>%s</string><string>%s</string><string>serve</string>
+    <string>--port</string><string>%d</string></array>
+  <key>WorkingDirectory</key><string>%s</string>
+  <key>RunAtLoad</key><true/>
+</dict></plist>
+""" % (LOGON_MARK, sys.executable, BASE / "forge.py", int(port), BASE))
+
+
+def logon_path():
+    if on_windows():
+        d = startup_dir()
+        return d / LOGON_NAME if d else None
+    if on_mac():
+        return Path.home() / "Library" / "LaunchAgents" / PLIST_NAME
+    return None
+
+
+def install_logon(port):
+    """Returns (changed, sentence). Never writes over a file somebody else
+    put there."""
+    path = logon_path()
+    if path is None:
+        if on_windows():
+            return False, ("Could not find your Startup folder, so nothing "
+                           "was written.")
+        return False, ("On Linux, add this line to  crontab -e  to start the "
+                       "board when the computer starts:\n     @reboot cd %s "
+                       "&& %s forge.py serve" % (BASE, sys.executable))
+    text = logon_text(port) if on_windows() else plist_text(port)
+    if path.is_file():
+        old = path.read_text(encoding="utf-8", errors="replace")
+        if old == text:
+            return False, "The start-up file is already in place: %s" % path
+        if not ours(old):
+            return False, ("%s already exists and was not written by this "
+                           "installer, so it was left alone." % path)
+    atomic_write(path, text)
+    if on_windows():
+        return True, ("the board will start by itself, with no window, each "
+                      "time you switch on the computer and sign in: %s" % path)
+    return True, ("wrote %s. To switch it on now, without logging out:\n"
+                  "     launchctl load -w %s" % (path, path))
+
+
+def remove_logon():
+    """Take away only a file this installer wrote.
+
+    Returns (removed, left_alone). A file of the same name that somebody else
+    put there is never removed, and it is named to the member instead of being
+    passed over in silence."""
+    gone, kept = [], []
+    d = startup_dir()
+    for p in ([d / LOGON_NAME] if d else []) + \
+            [Path.home() / "Library" / "LaunchAgents" / PLIST_NAME]:
+        try:
+            if not p.is_file():
+                continue
+            if not ours(p.read_text(encoding="utf-8", errors="replace")):
+                kept.append(str(p))
+                continue
+            p.unlink()
+            gone.append(str(p))
+        except OSError:
+            continue
+    return gone, kept
 
 
 # ---------------------------------------------------------------- writing
@@ -173,29 +340,38 @@ def write_if_changed(path, text, backup=False):
 
 def render_command(cfg, adapter_path):
     tpl = (BASE / "commands" / "forge-run.md").read_text(encoding="utf-8")
-    return (tpl.replace("{{FORGE_DIR}}", BASE.as_posix())
+    return (tpl.replace("{{PY}}", python_word())
+               .replace("{{FORGE_DIR}}", BASE.as_posix())
                .replace("{{ADAPTER}}", Path(adapter_path).as_posix())
                .replace("{{HUMAN}}", cfg["human"])
                .replace("{{ORCH}}", cfg["orchestrator"]))
 
 
+def python_word():
+    """The command that starts Python, in the lines Claude Code runs for you.
+    A current Mac has python3 and no python, so a bare `python` there fails
+    with "command not found"."""
+    return "python" if on_windows() else "python3"
+
+
 def claude_snippet(cfg, adapter_path):
     a = Path(adapter_path).as_posix()
+    py = python_word()
     mgr = ", ".join(cfg["managers"]) or "(none yet - only you open cards)"
     return f"""## ProjectForge - the work board (paste into your CLAUDE.md)
 
 Agent work is recorded on the ProjectForge board. The tool is
-`python "{a}"`.
+`{py} "{a}"`.
 
-- Before project work, an agent reads its card: `python "{a}" card <card_id>`.
+- Before project work, an agent reads its card: `{py} "{a}" card <card_id>`.
 - After the work, it logs a work report:
-  `python "{a}" pass --card <id> --agent <name> --summary "..." --outputs "files" --result <completed|progressed|blocked|failed|needs-review> --next "..."`.
+  `{py} "{a}" pass --card <id> --agent <name> --summary "..." --outputs "files" --result <completed|progressed|blocked|failed|needs-review> --next "..."`.
 - Handing work to another agent needs all 5 fields or the board refuses it:
-  `python "{a}" handoff --card <id> --from <me> --to <next> --done "..." --decisions "... because ..." --state "..." --next-first "..." --warnings "none"`.
+  `{py} "{a}" handoff --card <id> --from <me> --to <next> --done "..." --decisions "... because ..." --state "..." --next-first "..." --warnings "none"`.
 - Workers only add to a card (pass, handoff, comment, escalate). Managers ({mgr})
   may also `open` cards. Only the orchestrator (/forge-run) moves cards.
 - A handover also makes the receiving agent the card's owner.
-- Need a person? `python "{a}" escalate --card <id> --agent <name> --note "..."`
+- Need a person? `{py} "{a}" escalate --card <id> --agent <name> --note "..."`
   (marks the card NEEDS YOU, counts it in the header and moves it into
   Awaiting You, your own column).
 - Agents use only this tool, never forge.py.
@@ -321,6 +497,25 @@ def interview(args, ask, existing):
         note = ""
 
     port = int(args.port or existing.get("port") or 3020)
+
+    say("\n9. Start the board by itself each time you switch on your computer\n"
+        "   and %s? The board is a program that has to be running\n"
+        "   for http://127.0.0.1:%d to answer, so if you close its window or\n"
+        "   restart the computer, the board is gone until you start it again.\n"
+        "   Yes writes a small file that starts it with no window at all.\n"
+        "   To stop it, type  python forge.py serve --stop  in this folder.\n"
+        "   To take the file away again:  python install.py --uninstall"
+        % (sign_in_words(), port))
+    if args.start_with_computer:
+        say("   Start by itself when the computer starts: yes")
+        logon = True
+    else:
+        logon = ask.offer("   Start by itself when the computer starts?",
+                          bool(existing.get("_start_at_logon", False)))
+        if ask.yes:
+            say("   Start by itself when the computer starts: %s"
+                % ("yes" if logon else "no"))
+
     answers = {
         "second_brain": sb, "crm_vault": crm, "agents_dirs": agents_dirs,
         "agents": agents, "managers": managers, "outward_owners": outward,
@@ -328,8 +523,23 @@ def interview(args, ask, existing):
         "command_path": str(cmd_dir / "forge-run.md"),
         "adapter_dir": str(ch / "projectforge"),
         "_commands_to": where,
+        "_start_at_logon": bool(logon),
     }
     return answers, None
+
+
+def refuse_in_a_copy(existing, doing):
+    """A practice copy made by  forge.py make-copy  must never install or
+    uninstall: either would point your agents, /forge-run and the start-up
+    file at the copy, or take away the ones the everyday board uses."""
+    if not existing.get("copy_of"):
+        return False
+    say(f"Refused: this folder is a practice copy of {existing['copy_of']}. "
+        f"{doing} here would point your agents, the /forge-run command and "
+        f"the start-up file at the copy, or take away the ones your everyday "
+        f"board uses. Run it in {existing['copy_of']} instead. Nothing "
+        f"changed.")
+    return True
 
 
 def do_install(args):
@@ -339,6 +549,9 @@ def do_install(args):
     if sys.version_info < MIN_PY:
         say(f"Refused: Python {MIN_PY[0]}.{MIN_PY[1]} or newer is needed "
             f"(you have {sys.version.split()[0]}). Nothing changed.")
+        say("Python 3.10 gets security fixes only until 2026-10-31, and older "
+            "versions get none. Install a newer Python from "
+            "https://www.python.org/downloads/ and run this again.")
         return 1
     cpath = config_path()
     existing = {}
@@ -350,6 +563,8 @@ def do_install(args):
             say(f"\nStopped: {e}")
             say("Nothing changed.")
             return 1
+    if refuse_in_a_copy(existing, "Installing"):
+        return 1
     answers, err = interview(args, ask, existing)
     if err:
         say(f"\nStopped: {err}. Nothing changed.")
@@ -375,6 +590,8 @@ def do_install(args):
     say(f"  install {answers['command_path']}  (backup first if different)")
     if answers["summary_note"]:
         say(f"  write   {answers['summary_note']}  (only if it does not exist)")
+    if answers["_start_at_logon"] and logon_path():
+        say(f"  write   {logon_path()}  (starts the board by itself when the computer starts)")
     if not ask.confirm("Go ahead?"):
         say("Nothing changed.")
         return 1
@@ -428,7 +645,21 @@ def do_install(args):
         finally:
             st.close()
 
+    notes = []
+    if answers["_start_at_logon"]:
+        changed, line = install_logon(cfg["port"])
+        (changes if changed else notes).append(line)
+    else:
+        removed, left_alone = remove_logon()
+        for r in removed:
+            changes.append(f"start-up file removed: {r}")
+        for k in left_alone:
+            notes.append(f"{k} was not written by this installer, so it was "
+                         f"left alone.")
+
     say("")
+    for n in notes:
+        say(f"  {n}")
     if not changes:
         say("Already installed exactly like this. Nothing changed.")
     else:
@@ -438,7 +669,9 @@ def do_install(args):
 Next:
   1. Open the board:      python forge.py serve
      then visit          http://127.0.0.1:{cfg['port']}
-     (leave that window open; Ctrl+C in it stops the board)
+     (leave that window open. To stop the board, press Ctrl+C in it, or
+     open a second terminal, type  cd "{BASE}"  and then
+     python forge.py serve --stop )
   2. Paste the lines in  {snippet}
      into the CLAUDE.md every session reads ({claude_home() / 'CLAUDE.md'}),
      or your vault's CLAUDE.md if you chose "vault" at question 7.
@@ -479,11 +712,28 @@ def do_uninstall(args):
         say(f"Stopped: {e}")
         say("Nothing changed.")
         return 1
-    if not ask.confirm("Remove the /forge-run command and the agents' tool? "
-                       "Your board data and config stay.", default=False):
+    if refuse_in_a_copy(cfg, "Uninstalling"):
+        return 1
+    if not ask.confirm("Remove the /forge-run command, the agents' tool and "
+                       "the file that starts the board when the computer "
+                       "starts? Your board data and config stay.",
+                       default=False):
         say("Nothing changed.")
         return 1
     stamp = removed_stamp()
+    # first, stop a board that is running: a board that started by itself has no
+    # window, so there is nothing for the member to press Ctrl+C in.
+    try:
+        from engine import server
+        if server.running(cfg):
+            server.stop(cfg)
+    except Exception as e:  # noqa: BLE001 - say it, never swallow it
+        say(f"  (could not stop the board: {e})")
+    removed, left_alone = remove_logon()
+    for gone in removed:
+        say(f"  removed the start-up file: {gone}")
+    for k in left_alone:
+        say(f"  left alone: {k} was not written by this installer")
     # the agents' tool FIRST, because moving a folder is the step that can
     # fail (Windows refuses while any file inside is open). Doing it first
     # means a failure leaves everything as it was, and running the uninstall
@@ -549,6 +799,15 @@ def main(argv=None):
     ap.add_argument("--summary-note", dest="summary_note",
                     help="path of the summary note, or 'none'")
     ap.add_argument("--port", type=int)
+    ap.add_argument("--start-with-computer", dest="start_with_computer",
+                    action="store_true",
+                    help="answer yes to question 9: start the board by itself "
+                         "each time you switch on the computer and sign in "
+                         "(off unless you pass this)")
+    # the name this setting had until 2026-09-24, still accepted so nothing
+    # typed or saved earlier breaks; hidden from --help.
+    ap.add_argument("--logon", dest="start_with_computer", action="store_true",
+                    help=argparse.SUPPRESS)
     args = ap.parse_args(argv)
     return do_uninstall(args) if args.uninstall else do_install(args)
 

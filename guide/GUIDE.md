@@ -20,7 +20,7 @@ The board has up to 8 columns. **Awaiting You** comes first, because it is the o
 
 Not every column fits on a laptop screen. When they do not, a bar under the header names every column with its number of cards; click a name and the board scrolls to that column.
 
-The Alerts and Activity panel on the right folds away too. Click **Hide** at the top of it and the columns take back the 270 pixels it was using; a **Show alerts and activity** tab appears on the right-hand edge, and clicking that brings the panel back. Both are ordinary buttons, so the Tab key reaches them and Enter works them. The board remembers which way you left it, after a refresh and the next time you open it, and the board's own 10-second refresh never puts the panel back on its own. Anything that arrives while it is folded is counted on the tab itself — **Show alerts and activity (2 new)** — so nothing is hidden from you without saying so.
+The Alerts and Activity panel on the right folds away too. Click **Hide** at the top of it and the columns take back the 270 pixels it was using; a **Show alerts and activity** tab appears on the right-hand edge, and clicking that brings the panel back. Both are ordinary buttons, so the Tab key reaches them and Enter works them. The board remembers which way you left it, after a refresh and the next time you open it, and the board's own 10-second refresh never puts the panel back on its own. Anything that arrives while it is folded is counted on the tab itself, as **Show alerts and activity (2 new)**, so nothing is hidden from you without saying so.
 
 ![The same board with the Alerts and Activity panel folded away. The Review column has come into view, and the tab on the right-hand edge brings the panel back.](img/activity-folded.png)
 
@@ -74,6 +74,22 @@ It also gives you a column that is yours, Awaiting You, and anything that would 
 ### What it is for
 
 Keeping a written trail of every job your agents do, 1 card per job, each with an owner, a work report, and only 1 session, `/forge-run`, allowed to move a card to Done.
+
+### What it writes outside its own folder
+
+The installer names every path below on screen and asks "Go ahead?" before it writes any of them.
+
+| It writes | Where | Can you switch it off? |
+|---|---|---|
+| The `/forge-run` command | `.claude\commands\forge-run.md` in your home folder, or your vault's `.claude\commands` if you answer `vault` at question 7. A file already there is copied to `forge-run.md.bak-<date>` first and put back when you uninstall. | No, but you choose which of the 2 folders |
+| Your agents' tool | `.claude\projectforge\` in your home folder: `forge_agent.py`, `forge_client.py` and `forge_agent.json`, and nothing else. | No |
+| The board summary note | The single file you name at question 8, inside your second brain, rewritten in full after every change. | Yes: type `none` |
+| A start-up file | Windows' Startup folder, or `~/Library/LaunchAgents` on a Mac. It starts the board by itself each time you switch on your computer and sign in to Windows (on a Mac, log in to your Mac); no account of any kind is involved. | Yes: it is off unless you answer yes at question 9 |
+| The optional schedule | A Windows task named `ProjectForge-RunIfReady`, or `ai.outliers.projectforge.runifready.plist` in `~/Library/LaunchAgents` on a Mac. It checks the board on a timer and starts Claude only when a card is ready. Only written if you run `python tools/schedule.py --install`. | Yes: it is off unless you install it. `python tools/schedule.py --remove` or `python install.py --uninstall` takes it away |
+
+Everything else the board keeps sits inside the download folder: the cards, the database at `data/forge.db`, and `config.json`. The picture below lists what it never touches.
+
+![What ProjectForge writes outside its own folder, and what it never touches.](img/writes-and-never-touches.png)
 
 ### Works well when
 
@@ -172,6 +188,20 @@ A test that made 231 changes to the board in a row, and a second read of the who
 - **The Done column sat off the right-hand edge** on both screens we tested, 1366 and 1920 pixels wide, and the scroll bar that would have taken you there was almost the same colour as the near-black board behind it. There is now a bar naming every column, the Alerts and Activity panel folds away with a **Hide** button, and the board's own scroll bar is the accent colour.
 - **Smaller fixes:** a search with no matches says so; refusals on the board no longer show the full command an agent typed; every alert links to its card; and the installer needs Python 3.11 or newer.
 
+### What this borrows, and from whom
+
+No outside code is in this download. Every line of it is ours, published under the MIT licence, which the `LICENSE` file in the folder sets out: you may use it, change it and pass it on. What the board borrows is ideas:
+
+- **Columns and cards** come from kanban boards, which Trello made familiar to most people: columns, drag and drop, checklists and tags.
+- **Only 1 writer may change a record** comes from the way databases are built, where it is called the single-writer rule. Here it means only the orchestrator, or you, moves a card between columns.
+- **The labels on work reports and handovers** are mostly the word list from FIPA ACL, a published standard for messages between software agents written between 1997 and 2002. INFORM, REQUEST, PROPOSE, ACCEPT, REFUSE, FAILURE and QUERY are its words; DELEGATE and ESCALATE are ours. We reuse the words only: none of that standard's code is here.
+- **The 5-field handover** is shift-handover practice, the kind hospitals and control rooms use, applied to agents. Ashley set the 5 fields on 2026-07-19 after reading a card that said "handed over" and nothing else.
+- **Check before you start the expensive part:** `tools/run_if_ready.py` counts the ready cards, with no AI, before it decides whether to start Claude at all.
+- **The small file that starts the board with no window** uses Windows Script Host, a part of every copy of Windows that can run a program hidden, so nothing is downloaded for it.
+- **The link from a card to a person** uses Obsidian's own `obsidian://open?path=` address format, which Obsidian documents.
+
+While it runs, the board uses the Python standard library and nothing else: there is no package to install and nothing to keep up to date. The automatic checks use pytest (MIT licence). The pictures in this guide were taken with Playwright (Apache 2.0 licence), which you do not need in order to run the board. The full table, a row per idea, is `WHAT-I-STOLE.md` in the download folder.
+
 ![A worker trying to open a card, a worker trying to move a card, and a thin handover. The board refuses all 3. Each refusal ends with a number (the exit code) that a script can read to tell which refusal happened. pf-t-6c37e9 is a card's id.](img/refusals.png)
 
 ## Pros and cons
@@ -183,16 +213,18 @@ A test that made 231 changes to the board in a row, and a second read of the who
 | Safety | Only the orchestrator (the `/forge-run` session) moves cards; only you take a card out of Awaiting You; work that reaches other people stops in Review; refusals show in red. | Every command ends with `--actor` and a name. An agent can type `--actor you` and the board records the change as yours. The rules catch mistakes; they do not catch an agent that gives a false name. |
 | Handovers | A handover missing any of the 5 fields is refused before it is saved. | Agents need a few extra lines of instruction to write good ones. |
 | Busy-work | The Queue tab lists every card that is waiting, in the order it would be handed out. | Agents that can open cards may open cards for work nobody needs. Ashley's first week: 3 cards done against 18 times he stepped in. His board on 2026-09-22 had 74 cards in Backlog and 0 being worked. |
-| Size | About 5,000 lines of plain Python and plain JavaScript. Your own Claude can read and change all of it. | With 3 to 5 agents, a simple list in your vault may be enough. The board is worth installing once your agents hand work to each other. |
+| Size | About 6,250 lines of plain Python and plain JavaScript, not counting the checks. Your own Claude can read and change all of it. | With 3 to 5 agents, a simple list in your vault may be enough. The board is worth installing once your agents hand work to each other. |
 | Time | Install takes about 5 minutes. | Wiring your agents in takes 20 to 30 minutes: a few lines pasted into CLAUDE.md, the instruction file every Claude Code session reads, and a few more into each agent's own file. |
 
 ![What starting Claude every 15 minutes cost Ashley, and what the download does instead.](img/timer-cost.png)
 
 ## Before you start
 
+**On a Mac:** a current Mac has a command called `python3` and none called `python`. Wherever this guide says `python`, type `python3`, and where it says `python -m pip`, type `python3 -m pip`. The installer knows this: on a Mac, the lines it writes for Claude Code to run already say `python3`. Paths in this guide are written the Windows way; on a Mac, `C:\Users\<you>` is your home folder, `~`, so `C:\Users\<you>\.claude\CLAUDE.md` is `~/.claude/CLAUDE.md`.
+
 | You need | How to check |
 |---|---|
-| Python 3.11 or newer (tested on 3.13) | Open a terminal and type `python --version`. On a Mac use `python3 --version`. The installer refuses anything older and changes nothing: Python 3.9 stopped getting security fixes on 2025-10-31 and 3.10 stops on 2026-10-31. |
+| Python 3.11 or newer (tested on 3.13) | Open a terminal and type `python --version`. On a Mac use `python3 --version`. The installer refuses anything older and changes nothing: Python 3.9 stopped getting security fixes on 2025-10-31, and 3.10 gets them only until 2026-10-31 (python.org, checked 2026-09-24). |
 | Git | `git --version` |
 | Claude Code, logged in | `claude --version`. Tested on Claude Code version 2.1.280 on 2026-09-23. |
 | Optional: your second brain vault | You know its folder, for example `C:\Users\<you>\Documents\Second Brain`. If you have not got one, type `none` at question 1 and everything else works the same. |
@@ -207,13 +239,15 @@ You do not need Node.js (another programming tool some downloads ask for). Nothi
 ## Install it
 
 1. Open a terminal. Windows: press the Windows key, type `PowerShell`, press Enter. Mac: open Terminal. It opens in your home folder, which is where all 4 downloads in this set go.
-2. Download the code and start the installer (on a Mac, type `python3` instead of `python`):
+2. Download the code and start the installer. Type the 3 lines below one at a time, pressing Enter after each (on a Mac, type `python3` instead of `python`, here and in every command after it):
 
 ```
-git clone https://github.com/OUTLIERS-ai/outliers-ws-03-projectforge; cd outliers-ws-03-projectforge; python install.py
+git clone https://github.com/OUTLIERS-ai/outliers-ws-03-projectforge
+cd outliers-ws-03-projectforge
+python install.py
 ```
 
-3. Answer the 8 questions. Most offer a default in square brackets; press Enter to accept it. Questions 4 and 5 have no default: press Enter for nobody.
+3. Answer the 9 questions. Most offer a default in square brackets; press Enter to accept it. Questions 4, 5 and 9 have no default that does anything: press Enter for nobody at 4 and 5, and for no at 9. If you run the installer a second time, each question offers your last answer instead, so type `no` at 9 to switch it off.
    - Question 1: your second brain vault folder, **or `none` if you have not got a vault**. With `none`, questions 7 and 8 answer themselves and the board works exactly the same: the only part you lose is the summary note, which lives in a vault.
    - Question 2: your CRM vault folder, or `none`.
    - Question 3: your agents folder. The installer lists every agent it finds.
@@ -222,6 +256,7 @@ git clone https://github.com/OUTLIERS-ai/outliers-ws-03-projectforge; cd outlier
    - Question 6: what the board calls you (default `you`). Remember it: you type it after `--actor` at the end of every terminal command that changes the board.
    - Question 7: where the `/forge-run` command goes: `user` (every Claude Code session) or `vault` (only sessions in your second brain).
    - Question 8: the board summary note, a note in your vault that lists the whole board and is rewritten after every change: pressing Enter writes it into your vault at the path shown. Type `none` if you do not want one.
+   - Question 9: should the board start by itself each time you switch on your computer and sign in? Press Enter for no. See step 7 below before you decide.
 4. The installer shows every file it is about to write and asks "Go ahead?". Type `y`.
 5. When it worked you see a list of `done:` lines like this:
 
@@ -229,20 +264,21 @@ git clone https://github.com/OUTLIERS-ai/outliers-ws-03-projectforge; cd outlier
 
 ![The same install with no Obsidian vault at all: `none` at question 1, and questions 7 and 8 answer themselves.](img/no-vault.png)
 
-6. Open the board: `python forge.py serve`, then visit `http://127.0.0.1:3020` in your browser (127.0.0.1 means your own computer; nothing goes online). There is no login and no wait. **If the terminal says port 3020 is already in use**, another board or another program is answering on that number: run `python forge.py serve --port 3021` instead, and visit `http://127.0.0.1:3021`. Any free number works; 3021 is the next one along. The terminal prints the address and then stays quiet while the board runs. That is normal. Leave the window open; press Ctrl+C in it to stop the board. The name under "ProjectForge" comes from the `workspace` line in `config.json`, the settings file the installer wrote; change it there.
+6. Open the board: `python forge.py serve`, then visit `http://127.0.0.1:3020` in your browser (127.0.0.1 means your own computer; nothing goes online). There is no login and no wait. **If the terminal says this board is already running**, it is: open the address it names. **If it says port 3020 is already in use**, another board or another program is answering on that number: run `python forge.py serve --port 3021` instead, and visit `http://127.0.0.1:3021`. Any free number works; 3021 is the next one along. The terminal prints the address and then stays quiet while the board runs. That is normal. Leave the window open. To stop the board, press Ctrl+C in it, or open a second terminal and type `cd outliers-ws-03-projectforge`, then `python forge.py serve --stop`. The name under "ProjectForge" comes from the `workspace` line in `config.json`, the settings file the installer wrote; change it there.
 
 ![A fresh board: empty, with the 3 first steps on the left and Awaiting You as the first column.](img/first-run.png)
 
-7. The board opens empty, with 3 steps on the left. Your first card: click "+ Add card", which sits **at the top of every column, under its heading**, and use the one under Ready. Because there is no project yet, the form asks you to name one, and the card and the project are made together.
+7. **Decide whether the board starts by itself when the computer starts.** The board only answers while the program is running, so closing that terminal window, or restarting the computer, takes the board away until you start it again. Answer yes at question 9 and the installer writes a small file that starts it for you with no window at all: `Outliers ProjectForge.vbs` in Windows' Startup folder, or `ai.outliers.projectforge.plist` in `~/Library/LaunchAgents` on a Mac. It is off unless you ask for it, and the installer shows you the exact path before writing it. On a Mac the file takes effect the next time you log in; to start it now, run the `launchctl load -w` line the installer prints. To change your mind, run `python install.py` again and answer the other way at question 9, or take the file away with `python install.py --uninstall`. To switch it on from a script rather than by answering: `python install.py --start-with-computer` (this setting means yes at question 9). A board started this way has no window, so there is nothing to press Ctrl+C in. To stop it, open a terminal (it opens in your home folder), type `cd outliers-ws-03-projectforge`, then `python forge.py serve --stop`. Start it again with `python forge.py serve` in the same folder, and check it by opening `http://127.0.0.1:3020` (or the port you chose) in your browser, where a page that loads means it is running.
+8. The board opens empty, with 3 steps on the left. Your first card: click "+ Add card", which sits **at the top of every column, under its heading**, and use the one under Ready. Because there is no project yet, the form asks you to name one, and the card and the project are made together.
 
 ![A fresh board on a laptop screen 1366 pixels wide, with the first card being added.](img/first-card.png)
 
-8. Open the file `data/CLAUDE-snippet.md` inside the download folder. Paste the first part into the CLAUDE.md that every session reads, `C:\Users\<you>\.claude\CLAUDE.md` (or the CLAUDE.md in your vault if you chose `vault` at question 7). Paste the second part into each worker agent's file. This is what makes your agents log their work.
-9. In Claude Code, type `/forge-run dry`. It reports what it would do and changes nothing.
+9. Open the file `data/CLAUDE-snippet.md` inside the download folder. Paste the first part into the CLAUDE.md that every session reads, `C:\Users\<you>\.claude\CLAUDE.md` (on a Mac, `~/.claude/CLAUDE.md`; or the CLAUDE.md in your vault if you chose `vault` at question 7). Paste the second part into each worker agent's file. This is what makes your agents log their work.
+10. In Claude Code, type `/forge-run dry`. It reports what it would do and changes nothing.
 
 > **Tip:** Want to see a full board first? Run `python tools/demo_board.py --out demo --serve` and open `http://127.0.0.1:3029`. It builds a separate demo board of made-up work, with a made-up CRM vault, and does not touch your real one.
 
-> **Note:** If a file called `forge-run.md` already exists in your Claude Code commands folder (`.claude\commands` in your home folder), the installer copies it to `forge-run.md.bak-<date>` before replacing it. Running the installer a second time with the same answers changes nothing. `python install.py --uninstall` asks you to type y, then takes the command out, moves the agents' tool into a folder named `projectforge.removed-<date>`, puts your own old command back (even if you installed twice), and leaves your board data alone.
+> **Note:** If a file called `forge-run.md` already exists in your Claude Code commands folder (`.claude\commands` in your home folder), the installer copies it to `forge-run.md.bak-<date>` before replacing it. Running the installer a second time with the same answers changes nothing. `python install.py --uninstall` asks you to type y, then stops the board if it is running, takes away the file that starts the board when the computer starts (if you asked for one), takes the command out, moves the agents' tool into a folder named `projectforge.removed-<date>`, puts your own old command back (even if you installed twice), and leaves your board data alone. It only takes away a start-up file it wrote itself: a file of the same name that you or another program put there is left alone and named on screen. **To remove the whole download** after that, delete the `outliers-ws-03-projectforge` folder. Your cards and their history are in `data/forge.db` inside it, so copy that file first if you want to keep them.
 
 ## Using it day to day
 
@@ -268,10 +304,11 @@ The installer sets up 4 departments: content, sales, delivery and operations. An
 **What your agents run.** The installer puts the agents' tool, `forge_agent.py`, in the `.claude\projectforge` folder inside your home folder. It is not in the download folder, so to try it yourself give its full path (`$env:USERPROFILE` is how PowerShell writes your home folder, `C:\Users\<you>`):
 
 ```
-python "$env:USERPROFILE\.claude\projectforge\forge_agent.py" open --agent content-lead --dept content --project "Content week 39" --title "Write the newsletter" --assignee writer-bot
+$forge = "$env:USERPROFILE\.claude\projectforge\forge_agent.py"
+python $forge open --agent content-lead --dept content --project "Content week 39" --title "Newsletter" --assignee writer-bot
 ```
 
-On a Mac the path is `~/.claude/projectforge/forge_agent.py`. The full list of its commands is under "Every command and setting" below.
+The first line saves the tool's full path under the short name `$forge`, so the second line fits on 1 line. On a Mac, type `forge=~/.claude/projectforge/forge_agent.py` first, then the same second line. Type the name of 1 of your managers after `--agent` (question 4 at install). If you pressed Enter there, you have no managers, and the board answers `refused: content-lead is a worker and may not open a card`. That is the first rule doing its job; open the card on the board instead, or re-run `python install.py` and name a manager. The full list of its commands is under "Every command and setting" below.
 
 **Letting the agents work.** When cards are sitting in Ready, type `/forge-run` in Claude Code (or `/forge-run 3` to run at most 3 cards). The orchestrator:
 
@@ -317,9 +354,11 @@ Each alert names its card, and under it sits an "Open this card" link that takes
 
 ## Fit it to your own AI system
 
-Take this download and alter it. It is yours now: change it until it matches how you work. Ashley wrote the first board in 1 day and then changed it for 3 months. His own copy has 5 tabs along the top, not 3: the board, the queue of what would be handed out next, his agents and what each has done, whether the job that starts Claude on a clock is switched on, and a map showing which of his agents hands work to which, which he moved onto this board after deciding that no second screen at a second web address was allowed to exist alongside it. It has colour themes, because he wanted the board to be easier on the eye at night. He added an 8th column, Tracking, the day he found 18 cards that only reported a status were filling the limit of 10 in progress and nothing could be handed out at all. Then the 5-field handover, after reading a card that said "handed over" and nothing else. Each of those changes came out of a day when the board got something wrong.
+**The safe way.** Change a practice copy, never the board you use every day. Open a terminal (it opens in your home folder), type `cd outliers-ws-03-projectforge`, then `python forge.py make-copy ../projectforge-practice` (`..` means the folder above this one, your home folder). That makes a new folder, `projectforge-practice`, beside the download. The copy has its own copy of today's cards in its own `data/forge.db`, and its board answers on the next free port, 3021 if nothing else has it, so both boards can run at once. Nothing you do in the copy reaches your everyday board: your agents and `/forge-run` keep writing to the everyday one, and the copy writes no summary note into your vault, has no start-up file and no schedule. Then type `cd ../projectforge-practice` and `python forge.py serve`, and open the address it prints. `python forge.py serve --stop`, typed in the copy's folder, stops only the copy's board. Do not run `python install.py` in the copy: it refuses, because it would point your agents at the copy. Run `python -m pytest -q` in the copy after every change and expect `156 passed` (if it says there is no module named pytest, type `python -m pip install pytest` first). Any other answer means the change broke something, so put it back before you go on. Read "Every command and setting" near the end of this guide before you ask Claude Code for a change, because much of what you want is already a setting in `config.json`. Be most careful with `engine/db.py`: a mistake there can damage cards, and in the copy those are only copies. When the copy does what you want, copy the files you changed (never `data/` or `config.json`) into the download folder. Then stop the everyday board and start it again: type `cd ../outliers-ws-03-projectforge`, then `python forge.py serve --stop`, then `python forge.py serve`.
 
-Each idea below comes with a prompt you can paste into Claude Code, opened in the ProjectForge folder. Some ideas use settings you will find in `config.json` after installing; `config.example.json` shows them all filled in with examples.
+Take this download and alter it. It is yours now: change it until it matches how you work. Ashley wrote the first board in 1 day and then changed it for 3 months. His own copy has 5 tabs along the top, not 3: the board, the queue of what would be handed out next, his agents and what each has done, whether the job that starts Claude on a clock is switched on, and a map showing which of his agents hands work to which, which he moved onto this board after deciding that no second screen at a second web address was allowed to exist alongside it. It has colour themes, because he wanted the board to be easier on the eye at night. He added an 8th column, Tracking, the day he found 18 cards that only reported a status were filling the limit of 10 in progress and nothing could be handed out at all. Then the 5-field handover, after reading a card that said "handed over" and nothing else.
+
+Each idea below comes with a prompt you can paste into Claude Code, opened in the ProjectForge folder: in a new terminal, type `cd outliers-ws-03-projectforge`, then `claude`. Some ideas use settings you will find in `config.json` after installing; `config.example.json` shows them all filled in with examples.
 
 ### 1. Cards from your CRM's Today page
 
@@ -393,7 +432,7 @@ For my 3 busiest worker agents, create a file in cards/ modelled on cards/exampl
 
 ## Every command and setting
 
-The whole download at a glance, then every command. Anything that changes the board from the terminal needs `--actor <your board name>`.
+The whole download at a glance, then every command. Anything that changes the board from the terminal names who made the change: `--actor <your board name>`, or, for `pass` and `handoff`, the agent's name.
 
 ![What each file and folder in the download is for.](img/files-map.png)
 
@@ -402,6 +441,8 @@ The whole download at a glance, then every command. Anything that changes the bo
 | Command | What it does |
 |---|---|
 | `serve [--port 3020]` | Opens the web board and runs the health check every 10 minutes. |
+| `serve --stop` | Stops the board that belongs to this folder, whichever port it is on and whether you started it yourself or it started by itself when you switched on the computer. Type it inside the download folder. Use this when there is no window to press Ctrl+C in. It reads `data/forge.pid`, the small file the running board writes with its own process number (the number your computer gives every program while it runs) and port, then asks that address who it is: unless the answer is this folder's own board, it stops nothing and says so, so a record left over from an earlier board, or copied from another folder, can never end another program. |
+| `make-copy <folder> [--port 3021]` | Makes a practice copy to change safely: the code, a copy of today's cards, and its own port, with no summary note, no start-up file and no schedule. See "The safe way" under "Fit it to your own AI system". |
 | `daemon [--port] [--interval 10]` | The same as serve, except you set how many minutes there are between health checks: `--interval 10` means every 10 minutes. |
 | `list` | Open cards in the terminal. |
 | `projects` | Every project and its id. |
@@ -436,7 +477,7 @@ Results are completed, progressed, blocked, failed and needs-review. `--intent` 
 | `escalate --card --agent --note` | Any agent. Marks the card NEEDS YOU, counts it in the header, moves it into Awaiting You and raises an alert. |
 | `open --agent <manager> --dept --project --title [--assignee] [--status backlog/ready] [--context] [--notes] [--crm-person]` | Managers only. A new project name makes a new project. |
 
-**Other scripts.** `install.py` also takes every answer as a setting, for scripts: `--yes`, `--second-brain`, `--crm`, `--agents-dir`, `--managers`, `--outward`, `--name`, `--commands`, `--summary-note`, `--port`, and `--uninstall`. `tools/run_if_ready.py [--dry-run]` checks and starts Claude only if needed. `tools/schedule.py --print / --install [--every 60, in minutes] / --remove` shows, switches on or switches off the optional schedule (a hidden Windows task, or an entry in launchd, the Mac's built-in scheduler). `tools/demo_board.py --out demo [--serve] [--port 3029]` builds the demo. `adapters/forge_client.py` lets your own programs send cards to the board over its web address.
+**Other scripts.** `install.py` also takes every answer as a setting, for scripts: `--yes`, `--second-brain`, `--crm`, `--agents-dir`, `--managers`, `--outward`, `--name`, `--commands`, `--summary-note`, `--port`, `--start-with-computer` (yes at question 9: start the board by itself when the computer starts), and `--uninstall`. `--yes` takes the default for every question except question 9, which stays off unless you add `--start-with-computer`: no script can put a file in your Startup folder without being told to. `tools/run_if_ready.py [--dry-run]` checks and starts Claude only if needed. `tools/schedule.py --print / --install [--every 60, in minutes] / --remove` shows, switches on or switches off the optional schedule (a hidden Windows task, or an entry in launchd, the Mac's built-in scheduler). `tools/demo_board.py --out demo [--serve] [--port 3029]` builds the demo. `adapters/forge_client.py` lets your own programs send cards to the board over its web address.
 
 **Settings in `config.json`.**
 
@@ -456,7 +497,7 @@ Results are completed, progressed, blocked, failed and needs-review. `--intent` 
 
 **The web address, for your own programs.** The board answers on `http://127.0.0.1:3020/api/...`. Reads: `state`, `events`, `agents`, `alerts`, `metrics`, `cards`, `next`, `waiting`, `task/<card>`. Writes (in JSON, the standard text format programs use to swap data; only from your own computer, and each must name an `actor`): `open`, `pass`, `handoff`, `federate` (another program sending cards in), `task/add`, `task/move`, `task/update`, `task/tags`, `task/checklist`, `task/comment`, `task/archive`, `task/reorder`, `project/add`, `project/update`, `alert/dismiss`, and the orchestrator's `intake`, `dispatch`, `commit`.
 
-**Also in the folder:** `README.md`, `WHAT-I-STOLE.md` (the ideas this borrows and their licences), `LICENSE` (MIT: anyone may use and change the code), `guide/` (this guide and its pictures), and `tests/` (123 automatic checks that the board works: `python -m pytest -q`; they never need a particular port to be free, so they pass while the board is running).
+**Also in the folder:** `README.md`, `WHAT-I-STOLE.md` (the ideas this borrows and their licences), `LICENSE` (MIT: anyone may use and change the code), `guide/` (this guide and its pictures), and `tests/` (156 automatic checks that the board works: `python -m pytest -q`, after `python -m pip install pytest` if you have not got pytest; they never need a particular port to be free, so they pass while the board is running, and every one of them points your home folder and your Startup folder at a throwaway folder first, so none of them touches your real ones).
 
 ## When it goes wrong
 
@@ -472,7 +513,10 @@ These are the real faults from Ashley's build and from testing this download, wi
 | "the following arguments are required: --actor" | Every `forge.py` change must say who made it. | Add `--actor` and your board name, for example `--actor you`. |
 | "no project with the id ..." | A wrong project id. | `python forge.py projects` lists them. |
 | "unknown department 'marketing'" | Only the departments in config.json are accepted. | Use content, sales, delivery or operations, or add a department to config.json. |
-| "Port 3020 is already in use" | A second copy of the board, or another program, has the port. | Close the other board's terminal window, or run `python forge.py serve --port 3021`. |
+| "This board is already running at http://127.0.0.1:3020" | Your board is already open. Most often it started by itself when you switched on the computer, and it has no window for you to notice. | Open that address in your browser: that is your board. To start it afresh, run `python forge.py serve --stop` in the download folder, then `python forge.py serve`. |
+| "Port 3020 is already in use by a ProjectForge board from another folder" or "... by another program" | A practice copy, or a program that is not the board, has the port. `serve --stop` typed here will not stop it, because it is not this folder's board. | Run this board on another port: `python forge.py serve --port 3021`, and visit `http://127.0.0.1:3021`. Or stop the practice copy from its own folder. |
+| The board is running but you cannot find its window, and Ctrl+C is not an option. | You answered yes at question 9, so it started by itself, with no window, when you switched on the computer and signed in. That is what you asked for. | Open a terminal, type `cd outliers-ws-03-projectforge`, then `python forge.py serve --stop`. To stop it happening every time, run `python install.py` again and answer no at question 9, or `python install.py --uninstall`. |
+| `serve --stop` says the board on record is not answering. | The board was ended some other way (Ctrl+C, or the computer switched off), or the folder was copied from another one, so `data/forge.pid` names a process number that is gone or belongs to another folder's board. | Nothing is wrong. It stops nothing, clears the record, and says so. It never ends a program unless that program answers and calls itself this folder's board. |
 | Your vault note was overwritten by a demo board. | During research on 2026-09-22, a copied settings file still pointed at a real vault note. It was restored from git. | The demo board never writes a summary note, and the installer shows the note's path before writing it. |
 | The orchestrator reports "bad json". | In the original, a long dash (—, called an em dash) typed into a command's text broke the request. | `/forge-run` now uses `forge.py` commands instead of web requests. Still type hyphens, not em dashes. |
 | An agent says the board was not found. | `forge_agent.json` is missing next to the tool. | Re-run `python install.py`. Or set an environment variable (a named setting your computer passes to programs) called `FORGE_DIR` to the download folder. |
@@ -486,16 +530,18 @@ These are the real faults from Ashley's build and from testing this download, wi
 | "the summary note was not written: the folder ... is not there". | Your vault has been renamed or moved, or a OneDrive vault has not synced yet. | Check the folder exists, then run `python forge.py mirror`. The board never makes a folder inside your vault, because it used to make an empty folder and report success. |
 | A card carries a red NEEDS YOU label. | An agent ran `escalate`: it cannot finish without a person. The card has moved into Awaiting You. | Read the note in the Activity list or on the card, do the part only you can do, then move the card on. Moving it out of Awaiting You takes the label off. |
 
-![What a second copy of the board says now. Before the fix, on Windows, it started silently on the same port.](img/port-in-use.png)
+![What starting the board a second time says now: it names the board that is already running and how to stop it. Before 2026-09-22, on Windows, a second board started silently on the same port.](img/port-in-use.png)
 
 ## Download
 
 The code: https://github.com/OUTLIERS-ai/outliers-ws-03-projectforge
 
-Clone and install with a single command:
+Download and install with these 3 lines, pressing Enter after each:
 
 ```
-git clone https://github.com/OUTLIERS-ai/outliers-ws-03-projectforge; cd outliers-ws-03-projectforge; python install.py
+git clone https://github.com/OUTLIERS-ai/outliers-ws-03-projectforge
+cd outliers-ws-03-projectforge
+python install.py
 ```
 
 ![From nothing to your first card in 3 steps.](img/download.png)

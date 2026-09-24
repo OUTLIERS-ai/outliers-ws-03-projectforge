@@ -24,6 +24,11 @@ def fake_setup(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("USERPROFILE", str(home))
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(ch))
+    # A Startup folder of our own. The installer looks in APPDATA for the
+    # logon file, so no check may run against the real one.
+    (home / "appdata" / "Microsoft" / "Windows" / "Start Menu" / "Programs" /
+     "Startup").mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("APPDATA", str(home / "appdata"))
     cfgp = tmp_path / "install" / "config.json"
     monkeypatch.setenv("FORGE_CONFIG", str(cfgp))
     monkeypatch.setattr(install.Path, "home", classmethod(lambda c: home))
