@@ -13,6 +13,7 @@ import threading
 import time
 from pathlib import Path
 
+from .config import PY
 from .rules import (NotAllowed, Roles, check_handover,
                     handover_refusal_for_the_board, handover_summary)
 
@@ -347,7 +348,7 @@ class Store:
                              (project_id,)).fetchone() is None:
             raise ValueError(
                 f"no project with the id '{project_id}'. See the ids with: "
-                f"python forge.py projects")
+                f"{PY} forge.py projects")
         tid = new_id("pf-t")
         ts = now()
         self.conn.execute(

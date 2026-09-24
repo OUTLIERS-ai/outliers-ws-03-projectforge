@@ -30,6 +30,7 @@ from urllib.parse import parse_qs, urlparse
 
 from . import cards as cards_mod
 from . import mirror
+from .config import PY
 from .rules import NotAllowed
 
 ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
@@ -487,12 +488,12 @@ def stop(config):
 
 def port_in_use_message(config, port):
     """What to say when the port is taken, naming who has it."""
-    other = ("run this one on another port:  python forge.py serve --port %d"
-             % (int(port) + 1))
+    other = ("run this one on another port:  %s forge.py serve --port %d"
+             % (PY, int(port) + 1))
     meta = ask_board(port)
     if meta and is_ours(config, meta):
         return (f"This board is already running at http://127.0.0.1:{port} - "
-                f"open that address in your browser. To stop it:  python "
+                f"open that address in your browser. To stop it:  {PY} "
                 f"forge.py serve --stop")
     if meta:
         return (f"Port {port} is already in use by a ProjectForge board from "
@@ -516,7 +517,7 @@ def serve(store, config, base_dir: Path, port=3020, health_every_min=None):
               f"still works, but serve --stop will not find it)", flush=True)
     print(f"ProjectForge board: http://127.0.0.1:{port}", flush=True)
     print("Leave this window open while you use the board. Press Ctrl+C "
-          "here, or run  python forge.py serve --stop  in another terminal, "
+          f"here, or run  {PY} forge.py serve --stop  in another terminal, "
           "to stop it.", flush=True)
     try:
         httpd.serve_forever()

@@ -503,9 +503,9 @@ def interview(args, ask, existing):
         "   for http://127.0.0.1:%d to answer, so if you close its window or\n"
         "   restart the computer, the board is gone until you start it again.\n"
         "   Yes writes a small file that starts it with no window at all.\n"
-        "   To stop it, type  python forge.py serve --stop  in this folder.\n"
-        "   To take the file away again:  python install.py --uninstall"
-        % (sign_in_words(), port))
+        "   To stop it, type  %s forge.py serve --stop  in this folder.\n"
+        "   To take the file away again:  %s install.py --uninstall"
+        % (sign_in_words(), port, python_word(), python_word()))
     if args.start_with_computer:
         say("   Start by itself when the computer starts: yes")
         logon = True
@@ -667,17 +667,17 @@ def do_install(args):
             say(f"  done: {c}")
     say(f"""
 Next:
-  1. Open the board:      python forge.py serve
+  1. Open the board:      {python_word()} forge.py serve
      then visit          http://127.0.0.1:{cfg['port']}
      (leave that window open. To stop the board, press Ctrl+C in it, or
      open a second terminal, type  cd "{BASE}"  and then
-     python forge.py serve --stop )
+     {python_word()} forge.py serve --stop )
   2. Paste the lines in  {snippet}
      into the CLAUDE.md every session reads ({claude_home() / 'CLAUDE.md'}),
      or your vault's CLAUDE.md if you chose "vault" at question 7.
   3. In Claude Code, try  /forge-run dry  (a preview that changes nothing).
 Nothing runs on a timer. To add the optional schedule later:
-     python tools/schedule.py --print""")
+     {python_word()} tools/schedule.py --print""")
     return 0
 
 

@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from urllib.parse import quote
 
-from .config import atomic_write
+from .config import PY, atomic_write
 from .db import STATUSES
 
 STATUS_LABEL = {
@@ -25,7 +25,7 @@ tags: [projectforge, board, auto-generated]
 ---
 
 > Auto-generated copy of the ProjectForge board. Do not edit by hand:
-> it is rewritten after every change. Regenerate with `python forge.py mirror`.
+> it is rewritten after every change. Regenerate with `{py} forge.py mirror`.
 
 """
 
@@ -122,10 +122,10 @@ def write_mirrors(store, config, base_dir=None):
             f"the summary note was not written: the folder {folder} is not "
             f"there. The board never makes a folder in your vault. Check the "
             f"vault is where you think it is - a OneDrive vault may not have "
-            f"synced yet - then run: python forge.py mirror")
+            f"synced yet - then run: {PY} forge.py mirror")
     state = store.state()
     state["alerts"] = store.open_alerts()
-    text = NOTE_HEADER.format(date=time.strftime("%Y-%m-%d")) + \
+    text = NOTE_HEADER.format(date=time.strftime("%Y-%m-%d"), py=PY) + \
         render(state, config)
     atomic_write(Path(target), text)
     return [target]

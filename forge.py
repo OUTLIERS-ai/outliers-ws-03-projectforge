@@ -42,7 +42,7 @@ sys.path.insert(0, str(BASE))
 
 from engine import cards as cards_mod  # noqa: E402
 from engine import mirror, server  # noqa: E402
-from engine.config import ConfigError, load_config  # noqa: E402
+from engine.config import PY, ConfigError, load_config  # noqa: E402
 from engine.db import (PASS_RESULTS, PERFORMATIVES, STATUSES,  # noqa: E402
                        NotAllowed, open_store)
 
@@ -219,7 +219,7 @@ def run(args, cfg, store, remirror):
                 if t["status"] != "done" and not t["archived"]]
         if not rows:
             print("The board is empty. Add a card with add-task, or open "
-                  "the web board with: python forge.py serve")
+                  f"the web board with: {PY} forge.py serve")
         for t in rows:
             print(f"[{t['status']:>12}] {t['id']}  {t['title']}  "
                   f"({titles.get(t['project_id'], '?')}) "
@@ -227,7 +227,7 @@ def run(args, cfg, store, remirror):
     elif c == "projects":
         state = store.state()
         if not state["projects"]:
-            print("No projects yet. Make one with:  python forge.py "
+            print(f"No projects yet. Make one with:  {PY} forge.py "
                   "add-project \"Content week 39\" --dept content "
                   f"--actor {cfg.get('human', 'you')}")
         for p in state["projects"]:
@@ -280,7 +280,7 @@ def run(args, cfg, store, remirror):
                                 actor=args.actor)
         remirror()
         print(pid)
-        print(f"  add a card to it:  python forge.py add-task {pid} "
+        print(f"  add a card to it:  {PY} forge.py add-task {pid} "
               f"\"Card title\" --actor {args.actor}")
     elif c == "add-task":
         print(store.add_task(args.project_id, args.title, status=args.status,

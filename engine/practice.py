@@ -24,7 +24,7 @@ import socket
 import sqlite3
 from pathlib import Path
 
-from .config import atomic_write, config_path, db_path, read_json_file
+from .config import PY, atomic_write, config_path, db_path, read_json_file
 
 SET_PORTS = {3001, 3010, 3020, 4040}
 SKIP = ("data", "config.json", "__pycache__", ".pytest_cache", "*.tmp",
@@ -102,5 +102,5 @@ def make_copy(cfg, base, dest, port=None):
         "file and no schedule.",
         "Next, in this terminal:",
         f"  cd \"{dest}\"",
-        "  python forge.py serve",
+        f"  {PY} forge.py serve",
     ]

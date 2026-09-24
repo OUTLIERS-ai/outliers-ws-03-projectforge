@@ -161,7 +161,7 @@ def main(argv=None):
         c = load_config(cfgp)
         server.serve(open_store(c), c, BASE, port=a.port)
     else:
-        print(f"See it with:  python tools/demo_board.py --out {a.out} "
+        print(f"See it with:  {'python' if os.name == 'nt' else 'python3'} tools/demo_board.py --out {a.out} "
               f"--serve")
 
 

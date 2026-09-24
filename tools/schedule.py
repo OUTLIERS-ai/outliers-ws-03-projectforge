@@ -152,7 +152,7 @@ def main(argv=None):
             return r.returncode
         set_installed(True, every)
         print(f"Schedule on: every {every} minutes. Claude starts only when "
-              f"a card is ready. Turn off with: python tools/schedule.py "
+              f"a card is ready. Turn off with: {'python' if os.name == 'nt' else 'python3'} tools/schedule.py "
               f"--remove")
         return 0
     if a.remove:

@@ -13,6 +13,10 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 
+# The command a member types to run Python. A current Mac has python3 and no
+# python, so a printed "python forge.py ..." fails there with "command not found".
+PY = "python" if os.name == "nt" else "python3"
+
 DEFAULTS = {
     "workspace": "My AI Workforce",
     # the name the board uses for YOU, the human. Your moves are allowed.
@@ -106,11 +110,11 @@ def read_json_file(p) -> dict:
         raise ConfigError(
             f"{p} could not be read: line {e.lineno} is wrong ({e.msg}). "
             f"Open that file, fix line {e.lineno}, and save it as plain "
-            f"UTF-8 - or delete the file and run: python install.py")
+            f"UTF-8 - or delete the file and run: {PY} install.py")
     if not isinstance(data, dict):
         raise ConfigError(
             f"{p} must hold settings between curly brackets. Fix it, or "
-            f"delete the file and run: python install.py")
+            f"delete the file and run: {PY} install.py")
     return data
 
 
